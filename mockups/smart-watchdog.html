@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — Smart Watchdog 教保機構風險預警</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: {
+      primary: '#1677ff', success: '#52c41a', warning: '#faad14', danger: '#ff4d4f',
+      sec: '#8c8c8c', dis: '#bfbfbf', line: '#f0f0f0', sider: '#001529',
+      cyanx: '#13c2c2', gold: '#faad14', purple: '#722ed1'
+    },
+    fontFamily: { sans: ['Arial', 'Helvetica', 'sans-serif'] },
+    borderRadius: { antd: '6px' }
+  } }
+}
+</script>
+<style>
+  body{font-size:14px;color:rgba(0,0,0,.88)}
+  .card{background:#fff;border:1px solid #f0f0f0;border-radius:6px}
+  .card-h{padding:12px 24px;border-bottom:1px solid #f0f0f0;font-weight:600;font-size:16px;display:flex;justify-content:space-between;align-items:center;min-height:56px}
+  .card-b{padding:24px}
+  .tag{display:inline-block;padding:0 7px;line-height:20px;font-size:12px;border-radius:4px;border:1px solid}
+  .tag-blue{color:#1677ff;background:#e6f4ff;border-color:#91caff}
+  .tag-cyan{color:#13c2c2;background:#e6fffb;border-color:#87e8de}
+  .tag-green{color:#52c41a;background:#f6ffed;border-color:#b7eb8f}
+  .tag-gold{color:#d48806;background:#fffbe6;border-color:#ffe58f}
+  .tag-red{color:#ff4d4f;background:#fff2f0;border-color:#ffccc7}
+  .tag-purple{color:#722ed1;background:#f9f0ff;border-color:#d3adf7}
+  .tag-grey{color:#595959;background:#fafafa;border-color:#d9d9d9}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 15px;border-radius:6px;border:1px solid #d9d9d9;background:#fff;font-size:14px;white-space:nowrap}
+  .btn-primary{background:#1677ff;border-color:#1677ff;color:#fff}
+  .sel{height:32px;padding:0 11px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;font-size:14px;display:inline-flex;align-items:center;gap:8px;color:rgba(0,0,0,.88)}
+  table{width:100%;border-collapse:collapse}
+  th{background:#fafafa;text-align:left;padding:12px 16px;font-weight:600;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+  td{padding:12px 16px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+  th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .stat-t{color:rgba(0,0,0,.45);font-size:14px}
+  .stat-v{font-size:24px;line-height:32px;font-variant-numeric:tabular-nums}
+  .nav a{display:flex;align-items:center;gap:10px;height:40px;padding:0 24px;color:rgba(255,255,255,.65);cursor:pointer;margin:4px 8px;border-radius:6px}
+  .nav a.on{background:#1677ff;color:#fff}
+  .screen{display:none}.screen.on{display:block}
+  .bar{height:8px;border-radius:4px;background:#1677ff}
+  .score{font-weight:600;font-variant-numeric:tabular-nums}
+  .sec{color:#8c8c8c}
+  .alert-warn{background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:8px 12px;display:flex;gap:8px;align-items:center}
+  .alert-info{background:#e6f4ff;border:1px solid #91caff;border-radius:6px;padding:8px 12px;display:flex;gap:8px;align-items:center}
+  .alert-err{background:#fff2f0;border:1px solid #ffccc7;border-radius:6px;padding:8px 12px;display:flex;gap:8px;align-items:center}
+  .tl>div{position:relative}.tl{position:relative;padding-left:20px;border-left:2px solid #f0f0f0;margin-left:6px}
+  .tl-dot{position:absolute;left:-27px;top:4px;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #1677ff}
+  .fb{position:fixed;right:24px;bottom:24px;box-shadow:0 6px 16px rgba(0,0,0,.12)}
+  svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+</style>
+</head>
+<body class="bg-[#f5f5f5]">
+
+<!-- SVG sprite (Lucide) -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-dash" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></symbol>
+  <symbol id="i-bld" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
+  <symbol id="i-ok" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></symbol>
+</svg>
+
+<div class="flex" style="min-height:900px">
+  <!-- Sider -->
+  <aside class="bg-sider text-white shrink-0" style="width:220px">
+    <div class="h-16 flex items-center gap-3 px-6 border-b border-white/10">
+      <div class="w-8 h-8 rounded bg-primary flex items-center justify-center font-bold">SW</div>
+      <div><div class="font-semibold leading-tight">Smart Watchdog</div><div class="text-xs text-white/50">教保機構風險預警</div></div>
+    </div>
+    <nav class="nav pt-2" id="nav">
+      <a data-s="1" class="on"><svg class="i"><use href="#i-dash"/></svg>總覽</a>
+      <a data-s="2"><svg class="i"><use href="#i-list"/></svg>風險排名</a>
+      <a data-s="3"><svg class="i"><use href="#i-bld"/></svg>園所詳情</a>
+      <a data-s="4"><svg class="i"><use href="#i-share"/></svg>負責人關聯</a>
+      <a data-s="5"><svg class="i"><use href="#i-chart"/></svg>回測儀表</a>
+      <a data-s="6"><svg class="i"><use href="#i-dl"/></svg>匯出名單</a>
+      <a data-s="7"><svg class="i"><use href="#i-db"/></svg>資料品質</a>
+      <a data-s="8"><svg class="i"><use href="#i-set"/></svg>設定</a>
+    </nav>
+    <div class="px-6 mt-8 text-xs text-white/40">v0.1.0 · 分數模型 m-2026.09.10<br>新北市政府 AI 黑客松 · 教育局命題</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 min-w-0">
+    <header class="h-16 bg-white border-b border-line flex items-center justify-between px-6">
+      <div class="text-base font-semibold" id="hdr">總覽</div>
+      <div class="flex items-center gap-4 text-sm">
+        <span class="sec">資料截至 <b class="text-black">2026-09-10</b></span>
+        <span class="tag tag-green">裁罰資料 2 天前</span>
+        <span class="sec">承辦：幼教科 · 王</span>
+      </div>
+    </header>
+
+    <div class="p-6" style="max-width:1220px">
+
+    <!-- ===== 1 總覽 ===== -->
+    <section class="screen on" data-s="1">
+      <div class="grid grid-cols-4 gap-6">
+        <div class="card card-b"><div class="stat-t">新北市園所</div><div class="stat-v">1,216 <span class="text-sm sec">園</span></div><div class="text-xs sec mt-1">私立 869 · 公立 294 · 非營利 53</div></div>
+        <div class="card card-b"><div class="stat-t">監控名單</div><div class="stat-v text-danger">583 <span class="text-sm sec">園</span></div><div class="text-xs sec mt-1">有裁罰 487 · 連坐納入 96</div></div>
+        <div class="card card-b"><div class="stat-t">回頭客（≥2 次）</div><div class="stat-v">303 <span class="text-sm sec">園</span></div><div class="text-xs sec mt-1">貢獻 88% 的裁罰筆數</div></div>
+        <div class="card card-b"><div class="stat-t">近 12 個月裁罰</div><div class="stat-v">149 <span class="text-sm sec">筆</span></div><div class="text-xs sec mt-1">2025-09-01 起</div></div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-6 mt-6">
+        <div class="card">
+          <div class="card-h">各行政區回頭客園數 <a class="text-primary text-sm font-normal" data-go="2">查看全部 29 區</a></div>
+          <div class="card-b space-y-3">
+            <div class="flex items-center gap-3"><span class="w-14">板橋區</span><div class="flex-1"><div class="bar" style="width:100%"></div></div><span class="w-24 num text-right"><b>46</b> <span class="sec">/ 72 / 162</span></span></div>
+            <div class="flex items-center gap-3"><span class="w-14">新莊區</span><div class="flex-1"><div class="bar" style="width:76%"></div></div><span class="w-24 num text-right"><b>35</b> <span class="sec">/ 47 / 115</span></span></div>
+            <div class="flex items-center gap-3"><span class="w-14">新店區</span><div class="flex-1"><div class="bar" style="width:59%"></div></div><span class="w-24 num text-right"><b>27</b> <span class="sec">/ 41 / 91</span></span></div>
+            <div class="flex items-center gap-3"><span class="w-14">中和區</span><div class="flex-1"><div class="bar" style="width:59%"></div></div><span class="w-24 num text-right"><b>27</b> <span class="sec">/ 42 / 95</span></span></div>
+            <div class="flex items-center gap-3"><span class="w-14">蘆洲區</span><div class="flex-1"><div class="bar" style="width:48%"></div></div><span class="w-24 num text-right"><b>22</b> <span class="sec">/ 37 / 70</span></span></div>
+            <div class="text-xs sec">回頭客 / 有裁罰 / 全部園所。點擊行政區進入該區排名。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h">立案別裁罰率</div>
+          <div class="card-b">
+            <table><thead><tr><th>立案別</th><th class="num">園所</th><th class="num">有裁罰</th><th class="num">裁罰率</th><th class="num">回頭客</th></tr></thead>
+            <tbody>
+              <tr><td><span class="tag tag-blue">私立</span></td><td class="num">869</td><td class="num">449</td><td class="num"><b class="text-danger">52%</b></td><td class="num">288</td></tr>
+              <tr><td><span class="tag tag-gold">非營利</span></td><td class="num">53</td><td class="num">15</td><td class="num"><b class="text-warning">28%</b></td><td class="num">10</td></tr>
+              <tr><td><span class="tag tag-green">公立</span></td><td class="num">294</td><td class="num">23</td><td class="num">8%</td><td class="num">5</td></tr>
+            </tbody></table>
+            <div class="text-xs sec mt-3">準公共園計入私立（裁罰紀錄以立案別歸類）。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-6 mt-6">
+        <div class="card">
+          <div class="card-h">年度裁罰筆數（新北）</div>
+          <div class="card-b">
+            <div class="flex items-end gap-3" style="height:170px">
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">48</span><div class="w-full bg-primary/70 rounded-t" style="height:21px"></div><span class="text-xs sec">2018</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">141</span><div class="w-full bg-primary/70 rounded-t" style="height:62px"></div><span class="text-xs sec">2019</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">255</span><div class="w-full bg-primary rounded-t" style="height:112px"></div><span class="text-xs sec">2020</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">134</span><div class="w-full bg-primary/70 rounded-t" style="height:60px"></div><span class="text-xs sec">2021</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">107</span><div class="w-full bg-primary/70 rounded-t" style="height:48px"></div><span class="text-xs sec">2022</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">257</span><div class="w-full bg-primary rounded-t" style="height:114px"></div><span class="text-xs sec">2023</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">270</span><div class="w-full bg-primary rounded-t" style="height:120px"></div><span class="text-xs sec">2024</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">158</span><div class="w-full bg-primary/70 rounded-t" style="height:70px"></div><span class="text-xs sec">2025</span></div>
+              <div class="flex-1 flex flex-col items-center justify-end gap-1 h-full"><span class="text-xs">100</span><div class="w-full bg-primary/40 rounded-t" style="height:44px"></div><span class="text-xs sec">2026*</span></div>
+            </div>
+            <div class="text-xs sec mt-2">* 2026 至 04-24。來源：全國教保資訊網裁罰紀錄（含歷史備份）。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h">最常見違規法條</div>
+          <div class="card-b space-y-3">
+            <div class="flex items-center gap-3"><span class="w-40 truncate">§8 設立／變更未核准</span><div class="flex-1"><div class="bar" style="width:100%"></div></div><span class="w-10 num text-right">281</span></div>
+            <div class="flex items-center gap-3"><span class="w-40 truncate">§16 師生比／編班</span><div class="flex-1"><div class="bar" style="width:81%"></div></div><span class="w-10 num text-right">227</span></div>
+            <div class="flex items-center gap-3"><span class="w-40 truncate">§26 收費</span><div class="flex-1"><div class="bar" style="width:77%"></div></div><span class="w-10 num text-right">215</span></div>
+            <div class="flex items-center gap-3"><span class="w-40 truncate">§43 不當對待未通報</span><div class="flex-1"><div class="bar bg-danger" style="width:47%;background:#ff4d4f"></div></div><span class="w-10 num text-right">133</span></div>
+            <div class="flex items-center gap-3"><span class="w-40 truncate">§33 教保人員不當對待</span><div class="flex-1"><div class="bar" style="width:45%;background:#ff4d4f"></div></div><span class="w-10 num text-right">127</span></div>
+            <div class="text-xs sec">紅色為涉及幼兒安全的條款。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 2 風險排名 ===== -->
+    <section class="screen" data-s="2">
+      <div class="alert-warn mb-4" style="display:none"><svg class="i text-warning"><use href="#i-warn"/></svg>資料截至 2026-05-30，已超過 90 天。請執行更新管線。</div>
+      <div class="card">
+        <div class="card-h">
+          <div class="flex items-center gap-3">風險排名 <span class="sec text-sm font-normal">共 1,216 園 · 依未來 12 個月再犯風險</span></div>
+          <div class="flex items-center gap-2">
+            <span class="sec text-sm">本季名單 <b class="text-black">7</b> 園</span>
+            <button class="btn btn-primary" data-go="6"><svg class="i"><use href="#i-dl"/></svg>匯出名單</button>
+          </div>
+        </div>
+        <div class="px-6 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+          <span class="sel">行政區：全部 ▾</span>
+          <span class="sel">立案別：全部 ▾</span>
+          <span class="sel">風險等級：高、中 ▾</span>
+          <span class="sel">連坐：全部 ▾</span>
+          <input class="sel" style="width:220px" placeholder="搜尋園名">
+          <span class="sec text-sm ml-auto">顯示 1–10 / 1,216</span>
+        </div>
+        <table>
+          <thead><tr><th class="num">#</th><th>園所</th><th>行政區</th><th>立案別</th><th class="num">分數</th><th>等級</th><th>連坐</th><th>最近裁罰</th><th class="num">次數</th><th class="num">核定</th><th></th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td><a class="text-primary" data-go="3">吉尼爾幼兒園</a></td><td>新莊區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-danger">91</td><td><span class="tag tag-red">高</span></td><td></td><td>2026-04-24</td><td class="num">14</td><td class="num">56</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-ok"/></svg>已加入</button></td></tr>
+            <tr><td class="num">2</td><td><a class="text-primary">科見板橋幼兒園</a></td><td>板橋區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-danger">88</td><td><span class="tag tag-red">高</span></td><td><span class="tag tag-purple">負責人 O-017</span></td><td>2026-09-03</td><td class="num">7</td><td class="num">138</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-plus"/></svg>加入</button></td></tr>
+            <tr><td class="num">3</td><td><a class="text-primary">欣勵德幼兒園</a></td><td>板橋區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-danger">86</td><td><span class="tag tag-red">高</span></td><td></td><td>2026-09-01</td><td class="num">8</td><td class="num">28</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-ok"/></svg>已加入</button></td></tr>
+            <tr><td class="num">4</td><td><a class="text-primary">小親親幼兒園</a></td><td>淡水區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-danger">84</td><td><span class="tag tag-red">高</span></td><td></td><td>2026-09-01</td><td class="num">8</td><td class="num">78</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-plus"/></svg>加入</button></td></tr>
+            <tr><td class="num">5</td><td><a class="text-primary">榕榕園幼兒園</a></td><td>蘆洲區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-danger">82</td><td><span class="tag tag-red">高</span></td><td></td><td>2026-09-01</td><td class="num">7</td><td class="num">20</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-plus"/></svg>加入</button></td></tr>
+            <tr><td class="num">6</td><td><a class="text-primary">艾倫戴爾幼兒園</a></td><td>新莊區</td><td><span class="tag tag-cyan">準公共</span></td><td class="num score text-danger">79</td><td><span class="tag tag-red">高</span></td><td></td><td>2026-09-02</td><td class="num">6</td><td class="num">811</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-ok"/></svg>已加入</button></td></tr>
+            <tr><td class="num">7</td><td><a class="text-primary">育勝幼兒園</a></td><td>新莊區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-warning">71</td><td><span class="tag tag-gold">中</span></td><td><span class="tag tag-purple">負責人 O-017</span></td><td>2026-08-28</td><td class="num">6</td><td class="num">300</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-plus"/></svg>加入</button></td></tr>
+            <tr><td class="num">8</td><td><a class="text-primary">土城名仁幼兒園</a></td><td>土城區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-warning">68</td><td><span class="tag tag-gold">中</span></td><td></td><td>2026-09-03</td><td class="num">4</td><td class="num">47</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-plus"/></svg>加入</button></td></tr>
+            <tr><td class="num">9</td><td><a class="text-primary">奇異鳥米蘭幼兒園</a></td><td>樹林區</td><td><span class="tag tag-blue">私立</span></td><td class="num score text-warning">64</td><td><span class="tag tag-gold">中</span></td><td><span class="tag tag-purple">法人 L-004</span></td><td>2026-08-21</td><td class="num">3</td><td class="num">86</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-plus"/></svg>加入</button></td></tr>
+            <tr><td class="num">10</td><td><a class="text-primary">東湖非營利幼兒園</a></td><td>林口區</td><td><span class="tag tag-gold">非營利</span></td><td class="num score text-warning">61</td><td><span class="tag tag-gold">中</span></td><td></td><td>2026-08-14</td><td class="num">1</td><td class="num">242</td><td><button class="btn" style="height:28px"><svg class="i"><use href="#i-plus"/></svg>加入</button></td></tr>
+          </tbody>
+        </table>
+        <div class="px-6 py-3 flex items-center justify-between text-sm">
+          <span class="sec">無裁罰史的園所分數僅來自園所屬性，標示為 <span class="tag tag-grey">屬性分</span></span>
+          <span class="sec">‹ 1 2 3 … 122 ›</span>
+        </div>
+      </div>
+      <div class="card mt-6" style="display:none">
+        <div class="card-b alert-err"><svg class="i text-danger"><use href="#i-warn"/></svg>分數尚未計算（scores 表不存在）。<button class="btn ml-auto"><svg class="i"><use href="#i-refresh"/></svg>重新計算</button></div>
+      </div>
+    </section>
+
+    <!-- ===== 3 園所詳情 ===== -->
+    <section class="screen" data-s="3">
+      <div class="flex items-center gap-3 mb-4"><a class="text-primary flex items-center gap-1" data-go="2"><svg class="i"><use href="#i-back"/></svg>回排名</a><span class="sec">/</span><span>吉尼爾幼兒園</span></div>
+      <div class="grid grid-cols-3 gap-6 items-start">
+        <div class="card col-span-2">
+          <div class="card-h"><div>吉尼爾幼兒園 <span class="tag tag-blue ml-2">私立</span> <span class="sec text-sm font-normal ml-2">新莊區 · 核定 56 人 · 設立 2015</span></div><button class="btn btn-primary"><svg class="i"><use href="#i-plus"/></svg>加入本季名單</button></div>
+          <div class="card-b grid grid-cols-4 gap-6">
+            <div><div class="stat-t">再犯風險分數</div><div class="stat-v text-danger">91</div><div class="text-xs"><span class="tag tag-red">高</span></div></div>
+            <div><div class="stat-t">12 個月再犯機率</div><div class="stat-v">0.74</div><div class="text-xs sec">全市第 1 / 1,216</div></div>
+            <div><div class="stat-t">裁罰</div><div class="stat-v">14 <span class="text-sm sec">筆</span></div><div class="text-xs sec">2024-12 起 · 最近 2026-04-24</div></div>
+            <div><div class="stat-t">連坐</div><div class="stat-v sec">—</div><div class="text-xs sec">負責人名下僅此一園</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h">分數理由（前 5 特徵）</div>
+          <div class="card-b space-y-3 text-sm">
+            <div class="flex items-center gap-2"><span class="w-36">最近一次距今</span><div class="flex-1"><div class="bar" style="width:95%;background:#ff4d4f"></div></div><span class="num w-12 text-right">+0.31</span></div>
+            <div class="flex items-center gap-2"><span class="w-36">12 個月內裁罰次數</span><div class="flex-1"><div class="bar" style="width:80%;background:#ff4d4f"></div></div><span class="num w-12 text-right">+0.26</span></div>
+            <div class="flex items-center gap-2"><span class="w-36">§33 不當對待紀錄</span><div class="flex-1"><div class="bar" style="width:55%;background:#ff4d4f"></div></div><span class="num w-12 text-right">+0.18</span></div>
+            <div class="flex items-center gap-2"><span class="w-36">§46 拒絕檢查</span><div class="flex-1"><div class="bar" style="width:40%;background:#ff4d4f"></div></div><span class="num w-12 text-right">+0.13</span></div>
+            <div class="flex items-center gap-2"><span class="w-36">核定人數（小園）</span><div class="flex-1"><div class="bar" style="width:15%;background:#52c41a"></div></div><span class="num w-12 text-right">−0.05</span></div>
+            <div class="text-xs sec">貢獻值為 SHAP 示意；紅色推高風險、綠色降低。</div>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-6 mt-6">
+        <div class="card col-span-2">
+          <div class="card-h">裁罰時間軸 <span class="sec text-sm font-normal">14 筆 · 行為人以角色顯示</span></div>
+          <div class="card-b">
+            <div class="tl space-y-4">
+              <div><div class="tl-dot" style="border-color:#ff4d4f"></div><div class="flex gap-3"><span class="num sec w-24">2026-04-24</span><span class="flex-1">§16 編班違反年齡規定 <span class="sec">· 負責人</span></span><span class="num">罰鍰 60,000</span></div></div>
+              <div><div class="tl-dot" style="border-color:#ff4d4f"></div><div class="flex gap-3"><span class="num sec w-24">2026-04-23</span><span class="flex-1">§33 教保人員不當對待 ×2 <span class="sec">· 負責人</span></span><span class="num text-danger">停止招生至 2027-04-23</span></div></div>
+              <div><div class="tl-dot" style="border-color:#ff4d4f"></div><div class="flex gap-3"><span class="num sec w-24">2026-04-21</span><span class="flex-1">§33 不當對待 ×2 <span class="sec">· 行為人</span></span><span class="num">罰鍰 400,000 / 6,000</span></div></div>
+              <div><div class="tl-dot"></div><div class="flex gap-3"><span class="num sec w-24">2026-03-24</span><span class="flex-1">§46 規避、妨礙或拒絕檢查 <span class="sec">· 負責人</span></span><span class="num">罰鍰 60,000</span></div></div>
+              <div><div class="tl-dot" style="border-color:#ff4d4f"></div><div class="flex gap-3"><span class="num sec w-24">2026-03-17</span><span class="flex-1">§30 / §33 不當對待 <span class="sec">· 行為人</span></span><span class="num">罰鍰 90,000 / 60,000</span></div></div>
+              <div><div class="tl-dot"></div><div class="flex gap-3"><span class="num sec w-24">2026-02-02</span><span class="flex-1">§16 師生比 · §32 進用未具資格者 <span class="sec">· 負責人</span></span><span class="num">罰鍰 60,000 ×2</span></div></div>
+              <div><div class="tl-dot"></div><div class="flex gap-3"><span class="num sec w-24">2024-12-11</span><span class="flex-1">§37 未公開資訊 · §31 未核准幼童專用車 <span class="sec">· 負責人</span></span><span class="num">罰鍰 3,000 / 90,000</span></div></div>
+            </div>
+            <a class="text-primary text-sm mt-3 inline-block">查看全部 14 筆</a>
+          </div>
+        </div>
+        <div class="space-y-6">
+          <div class="card">
+            <div class="card-h">財務燈號</div>
+            <div class="card-b text-sm sec">私立園無公開財務報告；財務燈號僅適用公立與非營利園。</div>
+          </div>
+          <div class="card">
+            <div class="card-h">基本資料</div>
+            <div class="card-b text-sm space-y-2">
+              <div class="flex justify-between"><span class="sec">負責人</span><span>O-233</span></div>
+              <div class="flex justify-between"><span class="sec">核定人數</span><span class="num">56</span></div>
+              <div class="flex justify-between"><span class="sec">月費</span><span class="num">NT$ 9,800</span></div>
+              <div class="flex justify-between"><span class="sec">準公共</span><span>否</span></div>
+              <div class="flex justify-between"><span class="sec">基礎評鑑</span><span class="tag tag-grey">待抓取</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 4 負責人關聯 ===== -->
+    <section class="screen" data-s="4">
+      <div class="grid grid-cols-3 gap-6">
+        <div class="card col-span-2">
+          <div class="card-h"><div>負責人 O-017 名下園所 <span class="sec text-sm font-normal ml-2">8 園 · 5 園有裁罰 · 共 15 筆</span></div><span class="tag tag-purple">連坐監控中</span></div>
+          <div class="card-b">
+            <svg viewBox="0 0 760 340" class="w-full" style="height:340px;font-family:Arial;font-size:12px">
+              <g stroke="#d9d9d9" stroke-width="1.5">
+                <line x1="380" y1="170" x2="120" y2="60"/><line x1="380" y1="170" x2="260" y2="40"/><line x1="380" y1="170" x2="520" y2="40"/><line x1="380" y1="170" x2="650" y2="70"/>
+                <line x1="380" y1="170" x2="110" y2="280"/><line x1="380" y1="170" x2="270" y2="300"/><line x1="380" y1="170" x2="500" y2="300"/><line x1="380" y1="170" x2="650" y2="270"/>
+              </g>
+              <g>
+                <circle cx="380" cy="170" r="34" fill="#722ed1"/><text x="380" y="166" text-anchor="middle" fill="#fff" font-weight="bold">負責人</text><text x="380" y="182" text-anchor="middle" fill="#fff">O-017</text>
+                <g><rect x="60" y="40" width="120" height="40" rx="6" fill="#fff2f0" stroke="#ff4d4f"/><text x="120" y="57" text-anchor="middle">科見板橋</text><text x="120" y="72" text-anchor="middle" fill="#ff4d4f">7 筆 · 2026-09</text></g>
+                <g><rect x="200" y="20" width="120" height="40" rx="6" fill="#fff2f0" stroke="#ff4d4f"/><text x="260" y="37" text-anchor="middle">育勝</text><text x="260" y="52" text-anchor="middle" fill="#ff4d4f">6 筆 · 2026-08</text></g>
+                <g><rect x="460" y="20" width="120" height="40" rx="6" fill="#fff2f0" stroke="#ff4d4f"/><text x="520" y="37" text-anchor="middle">科見新莊</text><text x="520" y="52" text-anchor="middle" fill="#ff4d4f">1 筆 · 2024-03</text></g>
+                <g><rect x="590" y="50" width="120" height="40" rx="6" fill="#fff2f0" stroke="#ff4d4f"/><text x="650" y="67" text-anchor="middle">科見中和</text><text x="650" y="82" text-anchor="middle" fill="#ff4d4f">1 筆 · 2023-11</text></g>
+                <g><rect x="50" y="260" width="120" height="40" rx="6" fill="#fff2f0" stroke="#ff4d4f"/><text x="110" y="277" text-anchor="middle">科見土城</text><text x="110" y="292" text-anchor="middle" fill="#ff4d4f">— 停歇業</text></g>
+                <g><rect x="210" y="280" width="120" height="40" rx="6" fill="#f9f0ff" stroke="#722ed1" stroke-dasharray="4 3"/><text x="270" y="297" text-anchor="middle">科見三重</text><text x="270" y="312" text-anchor="middle" fill="#722ed1">連坐納入</text></g>
+                <g><rect x="440" y="280" width="120" height="40" rx="6" fill="#f9f0ff" stroke="#722ed1" stroke-dasharray="4 3"/><text x="500" y="297" text-anchor="middle">科見永和</text><text x="500" y="312" text-anchor="middle" fill="#722ed1">連坐納入</text></g>
+                <g><rect x="590" y="250" width="120" height="40" rx="6" fill="#f9f0ff" stroke="#722ed1" stroke-dasharray="4 3"/><text x="650" y="267" text-anchor="middle">科見林口</text><text x="650" y="282" text-anchor="middle" fill="#722ed1">連坐納入</text></g>
+              </g>
+            </svg>
+            <div class="flex gap-6 text-xs sec mt-2"><span><span class="inline-block w-3 h-3 rounded-sm align-middle mr-1" style="background:#fff2f0;border:1px solid #ff4d4f"></span>有裁罰</span><span><span class="inline-block w-3 h-3 rounded-sm align-middle mr-1" style="background:#f9f0ff;border:1px dashed #722ed1"></span>連坐納入監控（分數不變，只加旗標）</span></div>
+          </div>
+        </div>
+        <div class="space-y-6">
+          <div class="card">
+            <div class="card-h">連坐規則</div>
+            <div class="card-b text-sm space-y-2">
+              <div>負責人任一園在 <b>12 個月內</b>被裁罰 → 名下其他園進入監控名單。</div>
+              <div class="sec">非營利園以園名內「委託 ⋯ 辦理」的法人勾稽，不用負責人欄。</div>
+              <div class="alert-info text-xs"><svg class="i text-primary"><use href="#i-info"/></svg>回測：連坐園 12 個月被罰 11%，基準 7%。訊號弱，故只加旗標。</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h">名下園所</div>
+            <div class="card-b p-0">
+              <table><thead><tr><th>園</th><th>區</th><th class="num">裁罰</th><th></th></tr></thead><tbody>
+                <tr><td>科見板橋</td><td>板橋</td><td class="num text-danger">7</td><td><span class="tag tag-red">高</span></td></tr>
+                <tr><td>育勝</td><td>新莊</td><td class="num text-danger">6</td><td><span class="tag tag-gold">中</span></td></tr>
+                <tr><td>科見新莊</td><td>新莊</td><td class="num">1</td><td><span class="tag tag-gold">中</span></td></tr>
+                <tr><td>科見中和</td><td>中和</td><td class="num">1</td><td><span class="tag tag-green">低</span></td></tr>
+                <tr><td>科見三重</td><td>三重</td><td class="num">0</td><td><span class="tag tag-purple">連坐</span></td></tr>
+              </tbody></table>
+              <div class="px-4 py-2 text-sm"><a class="text-primary">查看全部 8 園</a></div>
+            </div>
+          </div>
+          <div class="alert-warn text-xs"><svg class="i text-warning"><use href="#i-warn"/></svg><span class="flex-1">「科見林口」負責人同名但地址相距 18 km，<b>同名待人工確認</b>。</span><a class="text-primary whitespace-nowrap">排除</a></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 5 回測儀表 ===== -->
+    <section class="screen" data-s="5">
+      <div class="alert-info mb-4"><svg class="i text-primary"><use href="#i-info"/></svg>以下為版面示意，數值以 <b>「示意」</b> 標示；正式回測（時間切分、裁罰後起算、12 個月標籤）尚未執行。</div>
+      <div class="grid grid-cols-4 gap-6">
+        <div class="card card-b"><div class="stat-t">AUC</div><div class="stat-v">0.xx <span class="tag tag-grey">示意</span></div><div class="text-xs sec mt-1">隨機 0.50 · 按次數排序 0.xx</div></div>
+        <div class="card card-b"><div class="stat-t">PR-AUC</div><div class="stat-v">0.xx <span class="tag tag-grey">示意</span></div><div class="text-xs sec mt-1">基準正例率 0.35</div></div>
+        <div class="card card-b"><div class="stat-t">前 100 名覆蓋率</div><div class="stat-v">xx% <span class="tag tag-grey">示意</span></div><div class="text-xs sec mt-1">後續 12 個月裁罰被抓到的比例</div></div>
+        <div class="card card-b"><div class="stat-t">提前天數（中位）</div><div class="stat-v">xx <span class="text-sm sec">天</span></div><div class="text-xs sec mt-1">再犯前首次進入前 100</div></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6 mt-6">
+        <div class="card">
+          <div class="card-h">前 N 名覆蓋率 vs 三條 baseline</div>
+          <div class="card-b">
+            <table><thead><tr><th>方法</th><th class="num">前 50</th><th class="num">前 100</th><th class="num">前 200</th></tr></thead><tbody>
+              <tr><td><b>再犯風險模型</b></td><td class="num">xx%</td><td class="num">xx%</td><td class="num">xx%</td></tr>
+              <tr><td>按歷史裁罰次數排序</td><td class="num">xx%</td><td class="num">xx%</td><td class="num">xx%</td></tr>
+              <tr><td>按最近裁罰距今排序</td><td class="num">xx%</td><td class="num">xx%</td><td class="num">xx%</td></tr>
+              <tr><td>隨機抽樣</td><td class="num">4%</td><td class="num">8%</td><td class="num">16%</td></tr>
+            </tbody></table>
+            <div class="alert-warn text-xs mt-3" style="display:none"><svg class="i text-warning"><use href="#i-warn"/></svg>模型未優於「按次數排序」；建議以規則排序為主。</div>
+            <div class="text-xs sec mt-3">隨機列為 N / 1,216 的理論值。若模型未優於「按次數排序」，此處會顯示警示且不隱藏。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h">分年回測（觀察年）</div>
+          <div class="card-b">
+            <table><thead><tr><th>觀察年</th><th class="num">觀察點</th><th class="num">正例</th><th class="num">AUC</th><th class="num">前 100 覆蓋</th></tr></thead><tbody>
+              <tr><td>2019</td><td class="num">141</td><td class="num">—</td><td class="num">示意</td><td class="num">示意</td></tr>
+              <tr><td>2020</td><td class="num">255</td><td class="num">—</td><td class="num">示意</td><td class="num">示意</td></tr>
+              <tr><td>2021</td><td class="num">134</td><td class="num">—</td><td class="num">示意</td><td class="num">示意</td></tr>
+              <tr><td>2022</td><td class="num">107</td><td class="num">—</td><td class="num">示意</td><td class="num">示意</td></tr>
+              <tr><td>2023</td><td class="num">257</td><td class="num">—</td><td class="num">示意</td><td class="num">示意</td></tr>
+              <tr><td>2024</td><td class="num">270</td><td class="num">—</td><td class="num">示意</td><td class="num">示意</td></tr>
+            </tbody></table>
+            <div class="text-xs sec mt-3">觀察點 = 該年每筆裁罰日期；訓練只用觀察點之前資料。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 6 匯出對話框 ===== -->
+    <section class="screen" data-s="6">
+      <div class="relative">
+        <div class="card opacity-40 pointer-events-none"><div class="card-h">風險排名</div><div class="card-b" style="height:520px"></div></div>
+        <div class="absolute inset-0 flex items-start justify-center pt-16" style="background:rgba(0,0,0,.45)">
+          <div class="card" style="width:520px;box-shadow:0 6px 16px rgba(0,0,0,.12)">
+            <div class="card-h">匯出本季名單 <svg class="i sec"><use href="#i-x"/></svg></div>
+            <div class="card-b space-y-4 text-sm">
+              <div class="flex justify-between"><span class="sec">名單園數</span><b>7 園</b></div>
+              <div class="flex justify-between"><span class="sec">篩選條件</span><span>行政區：全部 · 等級：高、中</span></div>
+              <div><div class="sec mb-2">欄位預覽</div><div class="flex flex-wrap gap-2">
+                <span class="tag tag-grey">園名</span><span class="tag tag-grey">行政區</span><span class="tag tag-grey">立案別</span><span class="tag tag-grey">分數</span><span class="tag tag-grey">等級</span><span class="tag tag-grey">連坐旗標</span><span class="tag tag-grey">最近裁罰日期</span><span class="tag tag-grey">裁罰次數</span><span class="tag tag-grey">負責人代碼</span>
+              </div></div>
+              <div class="alert-info text-xs"><svg class="i text-primary"><use href="#i-info"/></svg>匿名化：不含行為人與負責人姓名，負責人以代碼（O-xxx）呈現。</div>
+              <div><div class="sec mb-2">格式</div><div class="flex gap-3"><span class="sel" style="border-color:#1677ff;color:#1677ff">CSV（UTF-8 BOM）</span><span class="sel">Excel (.xlsx)</span></div></div>
+              <div class="alert-warn text-xs" style="display:none"><svg class="i text-warning"><use href="#i-warn"/></svg>名單為空，無資料可匯出。</div>
+            </div>
+            <div class="px-6 py-3 border-t border-line flex justify-end gap-2"><button class="btn">取消</button><button class="btn btn-primary"><svg class="i"><use href="#i-dl"/></svg>下載</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 7 資料品質 ===== -->
+    <section class="screen" data-s="7">
+      <div class="grid grid-cols-4 gap-6">
+        <div class="card card-b"><div class="stat-t">園所主檔</div><div class="stat-v">7,688</div><div class="text-xs sec mt-1">新北 1,216 · 負責人缺值 68</div></div>
+        <div class="card card-b"><div class="stat-t">裁罰紀錄</div><div class="stat-v">7,065</div><div class="text-xs sec mt-1">新北 1,474 · 2017-05 至 2026-04</div></div>
+        <div class="card card-b"><div class="stat-t">財報園年（OCR）</div><div class="stat-v">155</div><div class="text-xs sec mt-1">38 園 · 131 份 PDF</div></div>
+        <div class="card card-b"><div class="stat-t">恆等式通過</div><div class="stat-v">BS 148 · IS 151</div><div class="text-xs sec mt-1">未通過的科目設為空值</div></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6 mt-6">
+        <div class="card">
+          <div class="card-h">來源抓取狀態</div>
+          <div class="card-b p-0"><table><thead><tr><th>來源</th><th>最近成功</th><th class="num">筆數</th><th>狀態</th></tr></thead><tbody>
+            <tr><td>全國教保資訊網 · 基本資料</td><td>2026-09-10</td><td class="num">7,688</td><td><span class="tag tag-green">正常</span></td></tr>
+            <tr><td>全國教保資訊網 · 裁罰紀錄（含歷史備份）</td><td>2026-09-10</td><td class="num">7,065</td><td><span class="tag tag-green">正常</span></td></tr>
+            <tr><td>全國教保資訊網 · 基礎評鑑</td><td>—</td><td class="num">0</td><td><span class="tag tag-red">未接（表單 POST 500）</span></td></tr>
+            <tr><td>新北幼教資源網 · 非營利財報 PDF</td><td>2026-08-05（主辦方）</td><td class="num">131</td><td><span class="tag tag-green">正常</span></td></tr>
+            <tr><td>新北幼教資源網 · 裁罰公告（現行）</td><td>2026-09-11</td><td class="num">269</td><td><span class="tag tag-gold">僅園所層級</span></td></tr>
+          </tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-h">更新管線最近一次執行 <span class="sec text-sm font-normal">2026-09-10 23:41 · 52 分</span></div>
+          <div class="card-b p-0"><table><thead><tr><th>階段</th><th class="num">筆數</th><th class="num">耗時</th><th class="num">失敗</th></tr></thead><tbody>
+            <tr><td>抓公開資料</td><td class="num">14,753</td><td class="num">3 分</td><td class="num">1</td></tr>
+            <tr><td>OCR（僅新增）</td><td class="num">0 份</td><td class="num">0 分</td><td class="num">0</td></tr>
+            <tr><td>重建 SQLite</td><td class="num">4 表</td><td class="num">1 分</td><td class="num">0</td></tr>
+            <tr><td>重訓 + 回測</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>
+            <tr><td>重算分數 + 連坐</td><td class="num">1,216</td><td class="num">—</td><td class="num">—</td></tr>
+          </tbody></table></div>
+          <div class="card-b pt-0"><div class="alert-warn text-xs"><svg class="i text-warning"><use href="#i-warn"/></svg>基礎評鑑抓取失敗，沿用上次資料（無）。特徵「評鑑結果」暫缺。</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 8 設定 ===== -->
+    <section class="screen" data-s="8">
+      <div class="grid grid-cols-2 gap-6">
+        <div class="card">
+          <div class="card-h">風險等級與名單</div>
+          <div class="card-b space-y-4 text-sm">
+            <div class="flex items-center justify-between"><span>高風險門檻（分數 ≥）</span><span class="sel num">75</span></div>
+            <div class="flex items-center justify-between"><span>中風險門檻（分數 ≥）</span><span class="sel num">50</span></div>
+            <div class="flex items-center justify-between"><span>前 N 名預設</span><span class="sel num">100</span></div>
+            <div class="flex items-center justify-between"><span>連坐觀察期</span><span class="sel">12 個月 ▾</span></div>
+            <div class="flex items-center justify-between"><span>匯出匿名化</span><span class="tag tag-green">一律開啟</span></div>
+            <div class="text-xs sec">門檻只影響等級標籤與名單，不影響分數。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h">版本</div>
+          <div class="card-b space-y-3 text-sm">
+            <div class="flex justify-between"><span class="sec">程式版本</span><span>v0.1.0</span></div>
+            <div class="flex justify-between"><span class="sec">資料截至</span><span>2026-09-10</span></div>
+            <div class="flex justify-between"><span class="sec">分數模型</span><span>m-2026.09.10 <span class="tag tag-grey">AUC 示意</span></span></div>
+            <div class="flex justify-between"><span class="sec">上一版</span><span>— <span class="tag tag-grey">首版</span></span></div>
+            <div class="alert-warn text-xs" style="display:none"><svg class="i text-warning"><use href="#i-warn"/></svg>新版 AUC 較上版下降 0.06，未自動切換。<a class="text-primary ml-auto">核准切換</a></div>
+            <div class="sec pt-2 border-t border-line">CHANGELOG</div>
+            <div><b>0.1.0</b> <span class="sec">2026-09-12</span> — 首版：資料管線、再犯模型、連坐名單、8 個畫面。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    </div>
+  </main>
+</div>
+
+<button class="btn fb"><svg class="i"><use href="#i-msg"/></svg>這個排名有問題</button>
+
+<script>
+const titles={1:'總覽',2:'風險排名',3:'園所詳情',4:'負責人關聯',5:'回測儀表',6:'匯出名單',7:'資料品質',8:'設定'};
+function go(n){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.dataset.s==n));document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('on',a.dataset.s==n));document.getElementById('hdr').textContent=titles[n];location.hash='s'+n;}
+document.querySelectorAll('[data-s]').forEach(el=>{if(el.tagName==='A')el.addEventListener('click',()=>go(el.dataset.s));});
+document.querySelectorAll('[data-go]').forEach(el=>el.addEventListener('click',e=>{e.preventDefault();go(el.dataset.go);}));
+const m=location.hash.match(/s(\d)/); if(m) go(m[1]);
+</script>
+</body>
+</html>
