@@ -1,0 +1,6 @@
+# raw source PDFs (1.8 GB) — re-extract from ~/Downloads/E_教育局-*.zip
+raw/
+data/
+.venv/
+__pycache__/
+.DS_Store
