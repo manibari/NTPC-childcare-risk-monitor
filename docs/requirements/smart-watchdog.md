@@ -152,6 +152,21 @@ source: docs/problem-statement.txt (新北市政府 AI 黑客松・教育局命�
 - 可解釋：每個分數必附前 5 特徵貢獻；規則（連坐）與模型分開呈現。
 - 可重現：`build_db.py` 與訓練腳本固定 seed，回測結果可用一指令重跑。
 
+## 營運基線（app-ops-baseline，2026-09-12）
+
+參考實作 `~/code/ChimesFlow`（讀過再抄，不憑記憶重寫）。黑客松 demo 為單機單使用者，取捨如下：
+
+| # | 基線 | 決定 | 理由 / 對應 | ChimesFlow 參考 |
+|---|---|---|---|---|
+| 1 | 開發 roadmap | **延後** | 黑客松週期短，roadmap 放 README「下一步」節；若進入教育局試辦再開頁 | `frontend/src/app/(main)/admin/roadmap/`, `backend/app/routers/roadmap.py` |
+| 2 | 系統日誌 | **納入（系統日誌）／延後（稽核日誌）** | 更新管線各階段筆數、耗時、失敗數 → 資料品質頁（畫面 7，US-6）。稽核日誌（誰匯出了哪份名單）試辦時再加，demo 單使用者無意義 | `admin/logs/`, `routers/audit.py`, `models/audit_log.py`, `services/audit_service.py` |
+| 3 | 版本管理 | **納入** | repo `CHANGELOG.md` + 設定頁顯示程式版本、資料截至日、分數模型版本與其 AUC（US-6 的版本切換警示需要） | `settings/changelog/` |
+| 4 | 意見回饋 | **納入（輕量）** | 每頁一個「這個排名有問題」按鈕，存 SQLite `feedback` 表（園所 id、頁面、文字、時間）。承辦的反饋是未來標籤來源，評審也會問「誤判怎麼辦」 | `feedback/`, `routers/feedback.py`, `models/feedback.py` |
+| 5 | API 金鑰 | **不適用** | 本機 demo 無對外 API、無多使用者。若教育局要串內部系統再加 | `settings/api-keys/`, `routers/api_keys.py` |
+| 6 | 一般設定 | **納入（最小）** | 風險等級門檻（高／中分界）、前 N 預設值、匿名化開關（demo 一律開）、資料截至與版本資訊（承載 #3） | `settings/page.tsx` |
+
+新增畫面：**8 設定頁**（承載 #3、#6）。畫面 7 資料品質頁承載 #2。#4 是每頁元件，不是獨立畫面。
+
 ## 未決事項
 
 1. 分數版本切換的人工核准流程要多簡單（黑客松可只做警示）。
