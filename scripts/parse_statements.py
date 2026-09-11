@@ -25,6 +25,7 @@ IS_ITEMS = {
     "material": "材料費", "maint": "維護費", "repair": "修繕購置費", "admin": "行政管理費",
     "dev_expense": "業務發展費", "expense": "支出合計", "surplus": "本期稅後餘絀",
     "other_income": "其他收入", "extended_income": "延長照顧服務收入淨額",
+    "misc": "雜支", "extended_expense": "延長照顧服務支出", "other_expense": "其他支出", "interest_income": "利息收入",
 }
 NUM = re.compile(r"^[\$＄]?\s*[\(（]?\s*[\$＄]?\s*-?[\d][\d,\.，]*\s*[\)）]?$")
 
