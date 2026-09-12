@@ -7,7 +7,7 @@ requirement: "docs/requirements/smart-watchdog.md"
 mockup: mockups/smart-watchdog.html
 baseline: "首版，無 baseline（greenfield；既有 data/watchdog.sqlite 四張表為本設計的輸入，非宿主系統）"
 adr_checked: ["無 docs/adr；無專案 CLAUDE.md；對照 ~/.claude/CLAUDE.md Right-size infra（≤10k rows → SQLite）"]
-status: draft
+status: reviewed（2026-09-12 /gstack-autoplan 全數裁定；補丁見 §2 末、§5、§7、§8）
 ---
 
 # Smart Watchdog 系統設計
@@ -67,6 +67,13 @@ status: draft
 | `+` | `pipeline_runs` | `run_id`, `stage`, `started_at`, `seconds`, `n_rows`, `n_failed`, `ok` INT, `message` | — | — | (run_id) | 每個管線階段 | 資料品質 API |
 | `+` | `settings` | `key` TEXT PK, `value` TEXT | — | 見 §8 | — | API PUT、Pipeline（data_asof） | 全部 API |
 | `+` | `evaluations` | `preschool_id`, `result` TEXT, `fetched_at` | — | — | (preschool_id) | Ingest（可失敗） | FeatureBuilder |
+| `+` | `penalty_events`（autoplan Eng A2） | `event_id` PK, `preschool_id`, `date`；園×日期去重（1,474 列→1,004 事件） | 否 | — | (preschool_id, date) | DBBuilder | FeatureBuilder, 詳情（法條明細仍讀 penalties） |
+| `~` | `scores` + `risk_01` REAL、`score_batch_id`、`method` 加 'none' | 排程輸入 0–1；整批交易切 current；無裁罰史 = none | — | — | (score_batch_id, rank) | Scorer | Scheduler, API |
+| `~` | `models` + `feature_hash`, `eval_year`, `seed`；partial unique index `status='active'`；新增 `model_events` 留痕 | 版本可比、單一 active | — | — | ux_active | Trainer/Approver | Scorer |
+| `+` | `schedules` | `schedule_id` PK, `score_batch_id`, `asof_date`, `params` JSON(n_inspectors, visits_per_inspector_week, quarter_weeks, seed), `solver_status`, `objective`, `coverage_pct`, `is_current`, `is_stale` | — | — | (is_current) | Scheduler | 排程 API, Exporter |
+| `+` | `schedule_visits` | `schedule_id`, `preschool_id`, `week_no`, `inspector_no`, `rank`, `reason`, `pinned` INT | — | 0 | (schedule_id, week_no) | Scheduler | 排程頁, Exporter |
+| `+` | `agent_turns` | `turn_id` PK, `session_id`, `page`, `question`, `answer`, `tool_calls` JSON, `latency_ms`, `created_at` | — | — | (session_id) | AgentService | 資料品質頁 |
+| `~` | 所有表加前綴：來源表 `src_*`（整表重建）、持久表 `app_*`（永不 drop）；`linkers` 改為持久（`app_linkers`，首次配碼永不回收） | autoplan Eng A1/A8 | — | — | — | — | — |
 
 **`observations` 特徵欄**（全部由 `penalties` / `preschools` / `linkers` 在 `asof_date` **之前**的資料算出）：
 `n_pen_total`, `n_pen_12m`, `n_pen_24m`, `days_since_last`(無則 9999), `n_safety`(§30/33/43), `n_law_8`, `n_law_16`, `n_law_26`, `n_actor_person`(行為人筆數), `n_stop_enroll`(停止招生次數), `owner_n_schools`, `owner_n_pen_12m_other`(同負責人其他園), `operator_n_pen_12m_other`, `type`, `town`, `count_approved`, `monthly`, `is_pre_public`, `age_years`(asof − reg_date), `eval_result`(nullable)。
@@ -181,6 +188,8 @@ status: draft
 | Trainer | 正例 < 50 | 不產新版本，警示 | 跳過 Approver |
 | Approver | AUC 較 active 降 > 0.05 | 新版留 `trained`，不切換；設定頁顯示待核准 | 繼續（Scorer 用舊 active） |
 | Scorer | active 的 `beats_baseline=0` | method 改 `rule_count`，儀表如實顯示 | 繼續 |
+| Scheduler | 容量 0 / INFEASIBLE / UNKNOWN / 逾時 20s | 422 帶原因；逾時回可行解 + `is_stale`/近似旗標；換 score_batch 標 stale | 繼續 |
+| AgentService | Claude 429/5xx；非 SELECT / ATTACH / 姓名欄；無根據 | 退避 1 次→「稍後再試」；authorizer 拒→「超出範圍」；拒答列可問範例；無 key → 抽屜 disabled | 不影響其他功能 |
 
 ### 模型版本狀態機
 
@@ -310,7 +319,7 @@ SeasonListEntry ←(加入)─ 人 ←(看排名)─ Score
 | 儲存 | 單檔 SQLite（≤ 50 MB） | `~/.claude/CLAUDE.md` Right-size：≤10k 主檔列、≤20 使用者 → SQLite |
 | 訓練時間 | ≤ 2 分鐘（45k 列、~20 特徵、GBDT） | 估 |
 
-**權限**：單使用者 demo，無登入；API 綁 localhost；匿名化在 API 層與 Exporter 層各做一次（縱深）。
+**權限**：單使用者 demo，無登入；API 綁 localhost（Tunnel demo 時寫入端點需 `X-Demo-Token`）；匿名化在**架構層**：API 與 AgentService 只讀 `v_*` 去識別 view（無 actor_name/owner/operator/tel/address），Exporter 白名單再擋一次；demo 一律 `anonymize_titles`。
 
 ### 反證關卡（teeth）
 
@@ -343,6 +352,9 @@ SeasonListEntry ←(加入)─ 人 ←(看排名)─ Score
 | 8 | 契約 vs mockup 差異：mockup 詳情頁顯示「設立年」「月費」「基礎評鑑」，需求 US-2 未列 | 契約已納入（`reg_date`、`monthly`、`eval_result`） | 已補 | — |
 | 9 | 匯出是否記錄稽核 | 首版不記 | Peter | 試辦前 |
 | 10 | feedback 何時回流成標籤 | 首版只收 | Peter | 試辦後 |
+| 11 | 承辦是否有季度訪視配置權（排程輸出「行程」的前提） | 假設有（Peter 要求排程） | Peter（讀稽查 SOP / 訪談承辦） | Phase 5 前 |
+| 12 | 人力假設值 | 3 人 × 8 次/週 × 13 週 = 312 席（demo） | Peter | P3b 前 |
+| 13 | 列層 vs 事件層數字 | 一律事件層：回頭客 48%、貢獻 75%、12 個月再犯 26–33% | 已定（實查） | — |
 
 ---
 

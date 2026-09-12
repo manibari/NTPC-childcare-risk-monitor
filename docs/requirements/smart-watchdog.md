@@ -53,7 +53,7 @@ source: docs/problem-statement.txt (新北市政府 AI 黑客松・教育局命�
 **Acceptance Criteria:**
 - [ ] Given 資料已更新，when 開啟排名頁，then 顯示 1,216 園的分數（0–100）、風險等級（高／中／低）、最近一次裁罰日期、裁罰次數、負責人、類型、行政區
 - [ ] Given 選了行政區「新莊區」與立案別「私立」，when 套用篩選，then 清單只剩符合條件的園，且排序維持
-- [ ] Given 一家園所從未被裁罰且不在任何連坐名單，when 看它的分數，then 分數存在但標示「無歷史裁罰，分數僅來自園所屬性」
+- [ ] Given 一家園所從未被裁罰且不在任何連坐名單，when 看它的分數，then 顯示「無紀錄」，**不排名、不出屬性分**（autoplan E3），只列弱訊號命中數
 - [ ] Given 資料日期超過 90 天，when 開啟頁面，then 頁首顯示「資料截至 YYYY-MM-DD」並以警示色標示
 - [ ] Given 頁面載入，when 分數計算尚未完成或 DB 缺表，then 顯示明確錯誤與「重新計算」入口，不顯示空白表
 
@@ -131,12 +131,56 @@ source: docs/problem-statement.txt (新北市政府 AI 黑客松・教育局命�
 
 ---
 
+### US-8：稽查人力排程（autoplan E1，Peter 指示）
+
+**As a** 稽查承辦
+**I want to** 輸入稽查員人數與每人每週訪視數，得到一份本季「週 × 稽查員」的訪視行程與預計覆蓋率
+**So that** 我知道這季跑得完哪些園、少跑幾趟能多抓幾家
+
+**Acceptance Criteria:**
+- [ ] Given 設定 N 人 × v 次/週 × 13 週，when 產生排程，then 20 秒內回傳行程，每園至多一次，總席次 ≤ N·v·13，顯示覆蓋率（前 C 園覆蓋後續 12 個月裁罰 %）與 vs 按次數／隨機
+- [ ] Given 本季名單有園，when 產生，then 名單園必在行程內；承辦釘選為固定、排除為移除
+- [ ] Given 容量 0 或不可行，when 產生，then 422 顯示原因與「放寬」建議，不顯示空表
+- [ ] Given 求解逾時，when 回傳，then 標「近似解」
+- [ ] Given 分數換批，when 開啟排程頁，then 舊排程標 stale 並提示重排
+- [ ] Given 停辦園，when 排程，then 不出現
+
+### US-9：本季名單
+
+**As a** 稽查承辦
+**I want to** 一個名單頁：每園一行備註，狀態 草稿 → 送核 → 核定
+**So that** 交給科長時有憑有據
+
+**Acceptance Criteria:**
+- [ ] Given 從排名加入的園，when 開名單頁，then 依風險排序、可寫備註、可移除
+- [ ] Given 名單為空，when 開頁，then 「尚未加入任何園」+ 去排名入口
+
+### US-10：自然語言問答（唯讀 agentic）
+
+**As a** 稽查承辦或科長
+**I want to** 在右側抽屜用中文問「新莊區近半年被罰兩次以上的園」「為什麼 X 排第一」「這季為什麼沒排 Y」
+**So that** 不用學篩選器也能對名單追問
+
+**Acceptance Criteria:**
+- [ ] Given 一個問題，when 送出，then 串流回答固定三段：可展開的工具呼叫／數字表／「帶我去」深連結；每輪存 `agent_turns`
+- [ ] Given 問題要求姓名、寫入、或非 SELECT，when 送出，then 拒答並列可問範例；系統無任何寫入工具
+- [ ] Given 無 Anthropic key 或 LLM 429，when 開抽屜，then 顯示「未設定／稍後再試」，其餘功能 100% 可用
+- [ ] Given demo，when 問預備的三題，then 離線快取秒回
+
+## 互動狀態表、桌面與無障礙（autoplan Design D4）
+
+見 `docs/reviews/2026-09-12-autoplan.md` Phase 2 Pass 2（10 畫面 × LOADING/EMPTY/ERROR/SUCCESS/PARTIAL）與 Pass 6：desktop-only 1440 目標寬、1280 最小；表格橫向捲動 + 首欄凍結；全部互動可鍵盤、focus ring、抽屜 `role=dialog` + focus trap、`aria-sort`、圖表附文字摘要、色彩不當唯一訊號、對比 ≥ 4.5:1。
+
+## 畫面（autoplan gate 定案）
+
+主線 5：總覽（英雄＝本季行程覆蓋率）／風險排名／園所詳情（含關聯圖 hero 區塊）／排程／本季名單。維護區 3（側欄分隔線下）：回測／資料品質／設定。共用：問答抽屜、匯出對話框、回饋按鈕。
+
 ## 範圍
 
 | In Scope | Out of Scope |
 |---|---|
 | 新北市 1,216 園（全類型） | 其他縣市（資料有，但不展示） |
-| 再犯風險模型（有裁罰史的園）+ 屬性模型（無裁罰史的園）兩段合一分數 | 私立園財務分析（無公開資料） |
+| 回頭客規則分（主）+ 再犯模型（回測優於規則時取代細排序）；無裁罰史園「無紀錄」 | 私立園財務分析（無公開資料）；屬性分 |
 | 負責人／委辦法人連坐名單（旗標，不進分數） | 把連坐當模型特徵（檢定顯示訊號弱） |
 | 非營利／公立園財務燈號當附錄 | 宣稱財報可預測裁罰 |
 | 回測儀表與三 baseline | 即時串接教育局內部系統 |
