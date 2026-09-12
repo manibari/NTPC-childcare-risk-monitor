@@ -137,6 +137,8 @@ Lane A: P0→P1→P2→P3→P3b｜Lane B: P6（只依 P0）｜Lane C: D1→D2→
 
 ## Key Decisions
 
+- **2026-09-12（Peter 一連串產品裁示，皆已實作）**：園名用真名、負責人姓名顯示（公開登記資料；行為人／教保人員姓名仍不出）；「連坐」一詞改「同負責人」；裁罰事件寫具體違規（`scripts/law_labels.py`）不寫條號；排名表用 v1 精簡版（分數 0–100、全部 1,216 園、分頁）；分數要是模型 → 核准門檻改「單一指標勝過 0.02 且另一指標不落後」，邏輯迴歸 #3 核准為 active（AUC 0.640 vs 0.606），規則永遠是 fallback；維護區新增「模型」頁（訓練／核准／撤銷／留痕）；詳情頁 hero 先放分數／機率／排名／裁罰數，關聯圖下移；新增輿情分析（Google 新聞 RSS + 關鍵字語氣，Google 評價需 `GOOGLE_MAPS_API_KEY`），`sentiment_batch.py --top 100`；排程加各區配額與目標預設（風險優先／併訪／均衡，參考 Verdandi-OR）；本季名單加分數、根因（36 月違規類型）與稽查重點三行；字級整體放大（body 16px）。
+
 - **2026-09-12 P5 前端改為 FastAPI 靜態單頁（web/index.html + 內嵌 SVG 圖表）而非 Next.js**：mockup v2 已是可執行前端、rivendell 規定圖表用內嵌 SVG、`make bootstrap ≤ 5 分鐘` 不需 node；設計系統與畫面完全相同。若日後要多人協作再移植 Next.js。
 
 | Decision | Rationale | Date |

@@ -44,7 +44,7 @@ def load_problem(con: sqlite3.Connection, city: str = "新北市") -> dict:
     for pid, town, reason in con.execute(
             "SELECT w.preschool_id, p.town, w.reason FROM app_watchlist w JOIN src_preschools p ON p.id=w.preschool_id "
             "WHERE w.is_current=1 AND w.tier='linked' AND p.is_active=1"):
-        cand.setdefault(pid, {"town": town, "risk": LINKED_WEIGHT, "rank": None, "level": "連坐", "why": reason})
+        cand.setdefault(pid, {"town": town, "risk": LINKED_WEIGHT, "rank": None, "level": "同負責人", "why": reason})
     must = set()
     for pid, town in con.execute("SELECT s.preschool_id, p.town FROM app_season_list s JOIN src_preschools p ON p.id=s.preschool_id WHERE s.status<>'removed' AND p.is_active=1"):
         cand.setdefault(pid, {"town": town, "risk": 0.5, "rank": None, "level": "名單", "why": "本季名單"})
@@ -61,9 +61,19 @@ def load_problem(con: sqlite3.Connection, city: str = "新北市") -> dict:
             "weeks": int(s["quarter_weeks"]), "candidates": cand, "must": must, "pairs": pairs}
 
 
+PRESETS = {  # objective presets (Verdandi-OR style: the operator picks the goal, the solver picks the plan)
+    "risk": {"town_penalty": TOWN_PENALTY, "link_bonus": LINK_BONUS, "early_bonus": EARLY_BONUS, "label": "風險優先"},
+    "cluster": {"town_penalty": 0.20, "link_bonus": 0.25, "early_bonus": EARLY_BONUS, "label": "同區同負責人併訪"},
+    "balanced": {"town_penalty": 0.02, "link_bonus": LINK_BONUS, "early_bonus": EARLY_BONUS, "label": "各區均衡"},
+}
+
+
 def solve(prob: dict, pinned: dict[str, tuple[int, int]] | None = None, excluded: set[str] | None = None,
-          max_time: float = 20.0) -> dict:
+          max_time: float = 20.0, town_min: dict[str, int] | None = None, town_max: dict[str, int] | None = None,
+          objective: str = "risk") -> dict:
     pinned, excluded = pinned or {}, excluded or set()
+    town_min, town_max = town_min or {}, town_max or {}
+    wt = PRESETS.get(objective, PRESETS["risk"])
     I, V, W = prob["n_inspectors"], prob["visits_per_week"], prob["weeks"]
     cand = {k: v for k, v in prob["candidates"].items() if k not in excluded}
     must = {p for p in prob["must"] if p in cand}
@@ -72,6 +82,17 @@ def solve(prob: dict, pinned: dict[str, tuple[int, int]] | None = None, excluded
         raise PipelineError("產能為 0，無法排程", f"{I} 人 × {V} 次/週 × {W} 週", "到設定頁調整人力", stage="schedule")
     if len(must) > cap:
         raise PipelineError("必訪園超過本季產能", f"必訪 {len(must)} > 產能 {cap}", "增加人力或縮減本季名單", stage="schedule")
+    by_town: dict[str, list[str]] = {}
+    for pid, c in cand.items():
+        by_town.setdefault(c["town"], []).append(pid)
+    if objective == "balanced":  # proportional floor: 80% of each town's fair share, capped by its candidates
+        for tn, ps in by_town.items():
+            town_min.setdefault(tn, min(len(ps), int(0.8 * cap * len(ps) / max(len(cand), 1))))
+    for tn, n in town_min.items():
+        if n > len(by_town.get(tn, [])):
+            raise PipelineError("某區下限超過候選園數", f"{tn} 下限 {n} > 候選 {len(by_town.get(tn, []))}", "降低該區下限或把園加入本季名單", stage="schedule")
+    if sum(town_min.values()) > cap:
+        raise PipelineError("各區下限總和超過產能", f"{sum(town_min.values())} > {cap}", "降低下限或增加人力", stage="schedule")
     m = cp_model.CpModel()
     ids = list(cand)
     x = {(p, w, i): m.NewBoolVar(f"x_{n}_{w}_{i}") for n, p in enumerate(ids) for w in range(W) for i in range(I)}
@@ -86,6 +107,12 @@ def solve(prob: dict, pinned: dict[str, tuple[int, int]] | None = None, excluded
     for p, (w, i) in pinned.items():
         if p in cand and 0 <= w < W and 0 <= i < I:
             m.Add(x[p, w, i] == 1)
+    for tn, n in town_min.items():
+        if tn in by_town:
+            m.Add(sum(vis[p] for p in by_town[tn]) >= n)
+    for tn, n in town_max.items():
+        if tn in by_town:
+            m.Add(sum(vis[p] for p in by_town[tn]) <= n)
     towns = sorted({c["town"] for c in cand.values()})
     t = {(tn, w, i): m.NewBoolVar(f"t_{tn}_{w}_{i}") for tn in towns for w in range(W) for i in range(I)}
     for p in ids:
@@ -106,9 +133,9 @@ def solve(prob: dict, pinned: dict[str, tuple[int, int]] | None = None, excluded
                 same.append(y)
     S = 1000
     obj = [int(S * cand[p]["risk"]) * vis[p] for p in ids]
-    obj += [int(S * EARLY_BONUS * cand[p]["risk"] * (W - w)) * x[p, w, i] for p in ids for w in range(W) for i in range(I)]
-    obj += [int(S * LINK_BONUS) * y for y in same]
-    obj += [-int(S * TOWN_PENALTY) * tv for tv in t.values()]
+    obj += [int(S * wt["early_bonus"] * cand[p]["risk"] * (W - wk)) * x[p, wk, i] for p in ids for wk in range(W) for i in range(I)]
+    obj += [int(S * wt["link_bonus"]) * y for y in same]
+    obj += [-int(S * wt["town_penalty"]) * tv for tv in t.values()]
     m.Maximize(sum(obj))
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_time
@@ -125,6 +152,7 @@ def solve(prob: dict, pinned: dict[str, tuple[int, int]] | None = None, excluded
                 if solver.Value(x[p, w, i]):
                     visits.append({"preschool_id": p, "week_no": w + 1, "inspector_no": i + 1, "rank": cand[p]["rank"],
                                    "reason": cand[p]["why"], "pinned": int(p in pinned)})
+    town_visits = {tn: sum(int(solver.Value(vis[p])) for p in ps) for tn, ps in by_town.items()}
     tot = sum(c["risk"] for c in cand.values()) or 1
     cov = sum(cand[v["preschool_id"]]["risk"] for v in visits) / tot
     by_level = {}
@@ -133,7 +161,8 @@ def solve(prob: dict, pinned: dict[str, tuple[int, int]] | None = None, excluded
         if solver.Value(vis[p]): by_level[lv][0] += 1
     return {"status": name, "objective": solver.ObjectiveValue(), "visits": visits, "coverage_pct": round(cov * 100, 1),
             "capacity": cap, "candidates": len(cand), "must": len(must), "by_level": by_level,
-            "wall_s": round(solver.WallTime(), 1), "approx": name == "FEASIBLE"}
+            "wall_s": round(solver.WallTime(), 1), "approx": name == "FEASIBLE", "objective_preset": objective,
+            "town_visits": town_visits, "town_candidates": {tn: len(ps) for tn, ps in by_town.items()}, "town_min": town_min}
 
 
 def save(con: sqlite3.Connection, prob: dict, res: dict, params: dict) -> int:
@@ -152,10 +181,11 @@ def save(con: sqlite3.Connection, prob: dict, res: dict, params: dict) -> int:
     return sid
 
 
-def run(con: sqlite3.Connection, pinned=None, excluded=None, max_time: float = 20.0) -> dict:
+def run(con: sqlite3.Connection, pinned=None, excluded=None, max_time: float = 20.0, town_min=None, town_max=None, objective: str = "risk") -> dict:
     prob = load_problem(con)
-    res = solve(prob, pinned, excluded, max_time)
-    sid = save(con, prob, res, {"pinned": pinned or {}, "excluded": sorted(excluded or []), "max_time": max_time,
+    res = solve(prob, pinned, excluded, max_time, town_min, town_max, objective)
+    sid = save(con, prob, res, {"pinned": pinned or {}, "excluded": sorted(excluded or []), "max_time": max_time, "objective": objective,
+                                "town_min": res["town_min"], "town_max": town_max or {}, "town_visits": res["town_visits"], "town_candidates": res["town_candidates"],
                                 "n_inspectors": prob["n_inspectors"], "visits_per_week": prob["visits_per_week"], "weeks": prob["weeks"]})
     res["schedule_id"] = sid
     return res

@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS app_season_list(
 CREATE TABLE IF NOT EXISTS app_feedback(
   feedback_id INTEGER PRIMARY KEY AUTOINCREMENT, page TEXT NOT NULL, preschool_id TEXT,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS app_sentiment(
+  preschool_id TEXT PRIMARY KEY, fetched_at TEXT NOT NULL, query TEXT NOT NULL, n_items INTEGER NOT NULL,
+  n_negative INTEGER NOT NULL, n_12m INTEGER NOT NULL, items TEXT NOT NULL,
+  rating REAL, n_ratings INTEGER, reviews TEXT, place_id TEXT);
 CREATE TABLE IF NOT EXISTS app_agent_turns(
   turn_id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, page TEXT,
   question TEXT NOT NULL, answer TEXT, tool_calls TEXT, latency_ms INTEGER, created_at TEXT NOT NULL);
@@ -154,9 +158,9 @@ CREATE VIEW IF NOT EXISTS v_ratios AS SELECT preschool_id, code, title, fiscal_y
 CREATE VIEW IF NOT EXISTS v_finance_flags AS
   SELECT preschool_id, code, fiscal_year, level, level_revenue, level_cost, level_balance, level_surplus,
          is_latest, direction, history, reasons, dims FROM src_finance_flags;
-CREATE VIEW IF NOT EXISTS v_linkers AS SELECT linker_id, kind, code, n_schools FROM app_linkers;
+CREATE VIEW IF NOT EXISTS v_linkers AS SELECT linker_id, kind, code, key_name AS name, n_schools FROM app_linkers;
 CREATE VIEW IF NOT EXISTS v_preschool_linkers AS
-  SELECT pl.preschool_id, pl.linker_id, l.kind, l.code, l.n_schools, pl.same_name_flag, pl.excluded_by_user
+  SELECT pl.preschool_id, pl.linker_id, l.kind, l.code, l.key_name AS name, l.n_schools, pl.same_name_flag, pl.excluded_by_user
   FROM app_preschool_linkers pl JOIN app_linkers l ON l.linker_id = pl.linker_id;
 CREATE VIEW IF NOT EXISTS v_scores AS
   SELECT s.* , b.asof_date, b.method AS batch_method FROM app_scores s
@@ -168,8 +172,10 @@ CREATE VIEW IF NOT EXISTS v_schedule_visits AS
 CREATE VIEW IF NOT EXISTS v_season_list AS SELECT * FROM app_season_list;
 CREATE VIEW IF NOT EXISTS v_models AS SELECT * FROM app_models;
 CREATE VIEW IF NOT EXISTS v_backtests AS SELECT * FROM app_backtests;
+CREATE VIEW IF NOT EXISTS v_model_events AS SELECT * FROM app_model_events;
 CREATE VIEW IF NOT EXISTS v_settings AS SELECT * FROM app_settings;
 CREATE VIEW IF NOT EXISTS v_pipeline_runs AS SELECT * FROM app_pipeline_runs;
+CREATE VIEW IF NOT EXISTS v_sentiment AS SELECT * FROM app_sentiment;
 CREATE VIEW IF NOT EXISTS v_ntpc_penalty_summary AS
   SELECT p.id, p.title, p.type, p.town, p.count_approved, p.is_active,
          COUNT(e.event_id) AS n_events, MIN(e.date) AS first_event, MAX(e.date) AS last_event,
@@ -218,6 +224,10 @@ class DBBuilder:
         con.executescript(APP_SCHEMA)
         for k, v in DEFAULT_SETTINGS.items():
             con.execute("INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)", (k, v))
+        cols = {r[1] for r in con.execute("PRAGMA table_info(app_sentiment)")}
+        for col, typ in (("rating", "REAL"), ("n_ratings", "INTEGER"), ("reviews", "TEXT"), ("place_id", "TEXT")):
+            if col not in cols:
+                con.execute(f"ALTER TABLE app_sentiment ADD COLUMN {col} {typ}")
         cur = con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         if cur is None or cur < SCHEMA_VERSION:
             con.execute("INSERT INTO schema_version VALUES (?, ?)", (SCHEMA_VERSION, _now()))
@@ -291,8 +301,8 @@ class DBBuilder:
                                         "來源快照可能殘缺或被截斷", "檢查 data/kiang_*.json；確定要覆蓋則加 --force-rebuild", stage="build")
         con.execute("BEGIN IMMEDIATE")
         try:
-            for v in ("v_preschools", "v_penalties", "v_penalty_events", "v_ratios", "v_finance_flags", "v_linkers", "v_ntpc_penalty_summary"):
-                con.execute(f"DROP VIEW IF EXISTS {v}")
+            for (v,) in con.execute("SELECT name FROM sqlite_master WHERE type='view'").fetchall():
+                con.execute(f"DROP VIEW IF EXISTS {v}")  # every v_* is recreated from VIEWS_DDL below
             for t in SRC_TABLES:
                 con.execute(f"DROP TABLE IF EXISTS {t}")
             _exec_ddl(con, SRC_DDL)

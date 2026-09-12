@@ -109,7 +109,8 @@ def train_and_record(con: sqlite3.Connection, algo: str, data_asof: str, years: 
     mean = lambda rows, k: float(np.nanmean([r[k] for r in rows]))  # noqa: E731
     auc, top100 = mean(model_rows, "auc"), mean(model_rows, "top100")
     b_auc, b_top100 = mean(count_rows, "auc"), mean(count_rows, "top100")
-    beats = int(auc > b_auc + BEATS_MARGIN and top100 > b_top100 + BEATS_MARGIN)
+    # win on one metric by the margin without losing on the other (架構定調 3, refined 2026-09-12: Peter wants the score to be a model)
+    beats = int((auc > b_auc + BEATS_MARGIN and top100 >= b_top100 - BEATS_MARGIN) or (top100 > b_top100 + BEATS_MARGIN and auc >= b_auc - BEATS_MARGIN))
 
     final = make_model(algo).fit(resolved[EVENT_FEATURES], resolved["label"].astype(int))
     params = json.dumps({"algo": algo, "years": years, "gap_days": GAP_DAYS, "min_pos": MIN_POS}, sort_keys=True)

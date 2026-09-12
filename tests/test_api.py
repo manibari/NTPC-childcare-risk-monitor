@@ -29,8 +29,9 @@ def client():
 def names():
     con = sqlite3.connect(DB)
     out = set()
-    for col, tbl in (("owner", "src_preschools"), ("actor_name", "src_penalties")):
-        out |= {r[0] for r in con.execute(f"SELECT DISTINCT {col} FROM {tbl} WHERE {col} IS NOT NULL AND length({col})>=2")}
+    # 負責人 is public registry data and is shown by decision (2026-09-12); other individuals (行為人／教保人員) never
+    owners = {r[0] for r in con.execute("SELECT DISTINCT owner FROM src_preschools WHERE owner IS NOT NULL")}
+    out |= {r[0] for r in con.execute("SELECT DISTINCT actor_name FROM src_penalties WHERE actor_name IS NOT NULL AND length(actor_name)>=2 AND actor_role<>'負責人'")} - owners
     import re
     org = re.compile(r"幼兒園|公司|法人|協會|基金會|學校|國小|國中|大學|政府|負責人|教會|寺|宮")
     return {n for n in out if n and not org.search(n)}

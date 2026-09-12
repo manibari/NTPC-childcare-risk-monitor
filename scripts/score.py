@@ -41,6 +41,30 @@ def bucket_rates(resolved: pd.DataFrame) -> tuple[dict[str, float], float]:
     return rates, base
 
 
+FEATURE_ZH = {"n_events_total": "歷年事件數", "n_events_12m": "近 12 月事件", "n_events_36m": "近 36 月事件", "days_since_last": "距上次裁罰天數",
+              "years_since_first": "首次裁罰至今年數", "events_per_year": "每年事件率", "n_child_safety_total": "歷年不當對待／安全",
+              "n_child_safety_36m": "近 36 月不當對待／安全", "has_stop_enroll": "曾停止招生", "has_person_actor": "曾有個人行為人",
+              "n_rows_total": "歷年裁罰列數", "n_articles_last": "最近一次條款數", "n_events_prev_12m": "前一年事件"}
+
+
+def _contributions(model, X: pd.DataFrame) -> list[list]:
+    """Per-observation feature contributions: coef × standardised value for the logistic pipeline;
+    for tree models fall back to the model's global feature importance weighted by the standardised value."""
+    import numpy as _np
+    steps = getattr(model, "named_steps", None)
+    if steps and "logisticregression" in steps:
+        Z = steps["standardscaler"].transform(X); coef = steps["logisticregression"].coef_[0]
+        C = Z * coef
+    else:
+        Z = (X - X.mean()) / (X.std() + 1e-9); imp = getattr(model, "feature_importances_", _np.ones(X.shape[1]) / X.shape[1])
+        C = Z.values * imp
+    out = []
+    for row in C:
+        pairs = sorted(zip(EVENT_FEATURES, row), key=lambda kv: -abs(kv[1]))[:5]
+        out.append([[FEATURE_ZH.get(k, k), round(float(v), 3)] for k, v in pairs])
+    return out
+
+
 def _levels(prob: pd.Series, settings: dict) -> pd.Series:
     hi, mid = float(settings["high_threshold"]), float(settings["mid_threshold"])
     return pd.Series(np.where(prob >= hi, "高", np.where(prob >= mid, "中", "低")), index=prob.index)
@@ -72,9 +96,11 @@ def score_all(con: sqlite3.Connection, asof: str | None = None, city: str = "新
         cur["prob"] = cur["prob_rule"]
     cur = cur.sort_values(["prob", "rule"], ascending=[False, False]).reset_index(drop=True)
     cur["rank"] = np.arange(1, len(cur) + 1)
+    contrib = _contributions(bundle["model"], cur[EVENT_FEATURES]) if model_id is not None else None
     cur["risk_01"] = cur["prob"] / cur["prob"].max()
     cur["level"] = _levels(cur["prob"], settings)
-    cur["score"] = (cur["risk_01"] * 100).round().astype(int)
+    # display score 0–100 = relative 12-month recidivism probability (monotonic with rank)
+    cur["score"] = (100 * cur["risk_01"]).round().astype(int)
 
     schools = pd.read_sql_query("SELECT id, is_active FROM src_preschools WHERE city=?", con, params=(city,))
     scored = set(cur["preschool_id"])
@@ -85,10 +111,12 @@ def score_all(con: sqlite3.Connection, asof: str | None = None, city: str = "新
                             (asof, model_id, method, now))
         bid = cur_b.lastrowid
         rows = []
-        for r in cur.itertuples(index=False):
+        for r in cur.itertuples(index=True):
             top = {"n_events_36m": int(r.n_events_36m), "days_since_last": int(r.days_since_last),
                    "n_child_safety_36m": int(r.n_child_safety_36m), "has_stop_enroll": int(r.has_stop_enroll),
                    "rule_score": round(float(r.rule), 2), "prob_rule": round(float(r.prob_rule), 3)}
+            if model_id is not None:
+                top["contributions"] = contrib[r.Index if hasattr(r, "Index") else 0]
             rows.append((bid, r.preschool_id, method, float(r.prob), float(r.risk_01), int(r.score), int(r.rank), r.level,
                          rule_reason(pd.Series(r._asdict())), json.dumps(top, ensure_ascii=False)))
         for s in schools.itertuples(index=False):

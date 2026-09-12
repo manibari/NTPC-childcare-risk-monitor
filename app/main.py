@@ -139,6 +139,7 @@ def rankings(town: str | None = None, type: str | None = None, level: str | None
     if q: where.append("p.title LIKE ?"); args.append(f"%{q}%")
     if top_n: where.append("s.rank<=?"); args.append(top_n)
     link_sub = "(SELECT code FROM v_preschool_linkers l WHERE l.preschool_id=s.preschool_id AND l.kind='owner' AND l.n_schools>1 AND l.excluded_by_user=0 LIMIT 1)"
+    name_sub = "(SELECT l.name FROM v_preschool_linkers l WHERE l.preschool_id=s.preschool_id AND l.kind='owner' AND l.n_schools>1 AND l.excluded_by_user=0 LIMIT 1)"
     if linked == "yes": where.append(f"{link_sub} IS NOT NULL")
     if linked == "no": where.append(f"{link_sub} IS NULL")
     w = " AND ".join(where)
@@ -146,10 +147,11 @@ def rankings(town: str | None = None, type: str | None = None, level: str | None
     items = rows(con, f"""SELECT s.preschool_id, p.title, p.town, p.type, p.count_approved, s.rank, s.score, s.prob_12m, s.risk_01, s.level, s.method, s.reason, s.top_features,
                           (SELECT COUNT(*) FROM v_penalty_events e WHERE e.preschool_id=s.preschool_id) n_events,
                           (SELECT MAX(date) FROM v_penalty_events e WHERE e.preschool_id=s.preschool_id) last_event,
-                          {link_sub} linker_code,
+                          {link_sub} linker_code, {name_sub} linker_name,
                           EXISTS(SELECT 1 FROM v_season_list z WHERE z.preschool_id=s.preschool_id AND z.status<>'removed') in_season_list,
-                          (SELECT tier FROM v_watchlist w WHERE w.preschool_id=s.preschool_id LIMIT 1) watch_tier
-                          FROM v_scores s JOIN v_preschools p ON p.id=s.preschool_id WHERE {w}
+                          (SELECT tier FROM v_watchlist w WHERE w.preschool_id=s.preschool_id LIMIT 1) watch_tier,
+                          m.n_items news_n, m.n_negative news_neg, m.n_12m news_12m, m.rating, m.n_ratings
+                          FROM v_scores s JOIN v_preschools p ON p.id=s.preschool_id LEFT JOIN v_sentiment m ON m.preschool_id=s.preschool_id WHERE {w}
                           ORDER BY s.rank IS NULL, s.rank, s.level='停辦', p.title LIMIT ? OFFSET ?""", args + [size, (page - 1) * size])
     for it in items:
         it["top_features"] = json.loads(it["top_features"]) if it["top_features"] else None
@@ -189,6 +191,15 @@ def preschool(pid: str):
         gap = (date.fromisoformat(events[0]["date"]) - date.fromisoformat(events[1]["date"])).days
     return {"preschool": p, "score": sc, "penalties": pens, "events": events, "linkers": links, "watch": watch, "finance": finance,
             "visit": visit, "in_season_list": season, "last_gap_days": gap}
+
+
+@app.get("/api/v1/preschools/{pid}/sentiment")
+def preschool_sentiment(pid: str, refresh: int = 0):
+    from sentiment import get_or_refresh
+    con = rw()
+    p = one(con, "SELECT title, town FROM v_preschools WHERE id=?", (pid,))
+    if not p: raise ApiError(404, "NOT_FOUND", "查無此園")
+    return get_or_refresh(con, pid, p["title"], p["town"], refresh=bool(refresh))
 
 
 # ----------------------------------------------------------------------------- linkers
@@ -231,17 +242,27 @@ def schedule_get():
         raise ApiError(409, "NO_SCHEDULE", "尚未排程", "按「重新求解」或執行 python scripts/schedule.py", state="no_schedule")
     sch["params"] = json.loads(sch["params"])
     visits = rows(con, "SELECT v.*, p.title, p.town, s.level FROM v_schedule_visits v JOIN v_preschools p ON p.id=v.preschool_id LEFT JOIN v_scores s ON s.preschool_id=v.preschool_id ORDER BY week_no, inspector_no, rank", ())
-    by_level = {r["level"]: r["n"] for r in rows(con, "SELECT COALESCE(s.level,'連坐') level, COUNT(*) n FROM v_schedule_visits v LEFT JOIN v_scores s ON s.preschool_id=v.preschool_id GROUP BY 1")}
+    by_level = {r["level"]: r["n"] for r in rows(con, "SELECT COALESCE(s.level,'同負責人') level, COUNT(*) n FROM v_schedule_visits v LEFT JOIN v_scores s ON s.preschool_id=v.preschool_id GROUP BY 1")}
     totals = {r["level"]: r["n"] for r in rows(con, "SELECT level, COUNT(*) n FROM v_scores WHERE rank IS NOT NULL GROUP BY level")}
     by_town = rows(con, "SELECT p.town, COUNT(*) n FROM v_schedule_visits v JOIN v_preschools p ON p.id=v.preschool_id GROUP BY p.town ORDER BY n DESC")
+    cand_by_town = {r["town"]: r["n"] for r in rows(con, "SELECT p.town, COUNT(*) n FROM v_scores s JOIN v_preschools p ON p.id=s.preschool_id WHERE s.rank IS NOT NULL AND s.rank<=300 AND p.is_active=1 GROUP BY p.town")}
+    for t in by_town:
+        t["candidates"] = cand_by_town.get(t["town"], 0)
+    for tn, n in cand_by_town.items():
+        if not any(t["town"] == tn for t in by_town):
+            by_town.append({"town": tn, "n": 0, "candidates": n})
+    from schedule import PRESETS
     return {"schedule": sch, "capacity": cap, "settings": {k: int(s[k]) for k in ("n_inspectors", "visits_per_inspector_week", "quarter_weeks")},
-            "visits": visits, "by_level": by_level, "level_totals": totals, "by_town": by_town}
+            "visits": visits, "by_level": by_level, "level_totals": totals, "by_town": by_town, "presets": {k: v["label"] for k, v in PRESETS.items()}}
 
 
 class SolveReq(BaseModel):
     pinned: dict[str, list[int]] = Field(default_factory=dict)   # pid -> [week_no, inspector_no] (1-based)
     excluded: list[str] = Field(default_factory=list)
     max_time: float = 20.0
+    town_min: dict[str, int] = Field(default_factory=dict)
+    town_max: dict[str, int] = Field(default_factory=dict)
+    objective: str = "risk"
 
 
 @app.post("/api/v1/schedule/solve")
@@ -251,7 +272,9 @@ def schedule_solve(body: SolveReq):
     if not one(con, "SELECT 1 FROM v_scores LIMIT 1"):
         raise ApiError(409, "NO_SCORES", "尚未評分", state="no_scores")
     pinned = {k: (v[0] - 1, v[1] - 1) for k, v in body.pinned.items()}
-    res = run(con, pinned=pinned, excluded=set(body.excluded), max_time=min(body.max_time, 60))
+    if body.objective not in ("risk", "cluster", "balanced"): raise ApiError(400, "BAD_VALUE", "objective 需為 risk / cluster / balanced")
+    res = run(con, pinned=pinned, excluded=set(body.excluded), max_time=min(body.max_time, 60),
+              town_min={k: int(v) for k, v in body.town_min.items() if int(v) > 0}, town_max={k: int(v) for k, v in body.town_max.items() if int(v) > 0}, objective=body.objective)
     return {k: v for k, v in res.items() if k != "visits"} | {"n_visits": len(res["visits"])}
 
 
@@ -279,17 +302,39 @@ def capacity_curve():
 @app.get("/api/v1/season-list")
 def season_list():
     con = ro()
-    base = """SELECT w.preschool_id, p.title, p.town, p.type, w.tier, w.reason, w.source_preschool_id, q.title source_title, w.linker_id, l.code linker_code,
-              s.level, s.rank, v.week_no, v.inspector_no,
+    base = """SELECT w.preschool_id, p.title, p.town, p.type, w.tier, w.reason, w.source_preschool_id, q.title source_title, w.linker_id, l.code linker_code, l.name linker_name,
+              s.level, s.rank, s.score, s.prob_12m, s.top_features, v.week_no, v.inspector_no,
               (SELECT same_name_flag FROM v_preschool_linkers x WHERE x.preschool_id=w.preschool_id AND x.linker_id=w.linker_id) same_name_flag
               FROM v_watchlist w JOIN v_preschools p ON p.id=w.preschool_id LEFT JOIN v_preschools q ON q.id=w.source_preschool_id
               LEFT JOIN v_linkers l ON l.linker_id=w.linker_id LEFT JOIN v_scores s ON s.preschool_id=w.preschool_id LEFT JOIN v_schedule_visits v ON v.preschool_id=w.preschool_id
               WHERE w.tier=? ORDER BY s.rank"""
-    manual = rows(con, "SELECT z.*, p.title, p.town, s.level, s.rank FROM v_season_list z JOIN v_preschools p ON p.id=z.preschool_id LEFT JOIN v_scores s ON s.preschool_id=z.preschool_id WHERE z.status<>'removed'")
+    manual = rows(con, "SELECT z.*, p.title, p.town, s.level, s.rank, s.score, s.prob_12m FROM v_season_list z JOIN v_preschools p ON p.id=z.preschool_id LEFT JOIN v_scores s ON s.preschool_id=z.preschool_id WHERE z.status<>'removed'")
+    d36 = (date.fromisoformat(settings(con)["data_asof"]).replace(year=date.fromisoformat(settings(con)["data_asof"]).year - 3)).isoformat()
+    def enrich(lst):
+        for r in lst:
+            pen = rows(con, "SELECT law_article, law, punishment, date, is_child_safety FROM v_penalties WHERE preschool_id=? AND date>? ORDER BY date DESC", (r["preschool_id"], d36))
+            counts: dict[str, int] = {}
+            for x in pen:
+                k = short_label(x["law_article"]) if x["law_article"] else "未載明"
+                counts[k] = counts.get(k, 0) + 1
+            r["causes"] = sorted(({"label": k, "n": n} for k, n in counts.items()), key=lambda c: -c["n"])[:4]
+            r["last_violation"] = describe(pen[0]["law_article"], pen[0]["law"]) if pen else None
+            tf = json.loads(r["top_features"]) if r.get("top_features") else {}
+            focus = []
+            if any(x["is_child_safety"] for x in pen): focus.append("到班觀察教保人員與幼兒互動、調閱監視影像與通報紀錄")
+            if any(c["label"] in ("超收/設施", "師生比", "人員配置") for c in r["causes"]): focus.append("核對到園幼兒數、班級師生比與人員名冊")
+            if any(c["label"] in ("收費", "契約退費") for c in r["causes"]): focus.append("抽查收費明細與備查數額、退費紀錄")
+            if any(c["label"] in ("人員資格", "人員備查") for c in r["causes"]): focus.append("核對教保人員資格證書與異動備查")
+            if any(c["label"] == "幼童車" for c in r["causes"]): focus.append("檢查幼童專用車核准、載運人數與隨車人員")
+            if tf.get("has_stop_enroll"): focus.append("確認停止招生期間是否仍有收托")
+            if r.get("tier") == "linked": focus.insert(0, "同負責人園所曾裁罰：比對人員調動與管理方式是否相同")
+            r["focus"] = focus[:3] or ["依最近一次違規類型複查改善情形"]
+        return lst
+    penalized = enrich(rows(con, base, ("penalized",))); linked = enrich(rows(con, base, ("linked",))); manual = enrich(manual)
     curve = rows(con, """WITH e AS (SELECT preschool_id, date, LEAD(date) OVER (PARTITION BY preschool_id ORDER BY date) nxt FROM v_penalty_events WHERE preschool_id IN (SELECT id FROM v_preschools WHERE city=?))
                          SELECT m, ROUND(1.0*SUM(CASE WHEN nxt IS NOT NULL AND julianday(nxt)-julianday(date)<=m*30.44 THEN 1 ELSE 0 END)/COUNT(*),3) rate
                          FROM e, (SELECT 3 m UNION SELECT 6 UNION SELECT 9 UNION SELECT 12 UNION SELECT 18 UNION SELECT 24 UNION SELECT 36) WHERE julianday(?)-julianday(date) > m*30.44 GROUP BY m ORDER BY m""", (CITY, settings(con)["data_asof"]))
-    return {"penalized": rows(con, base, ("penalized",)), "linked": rows(con, base, ("linked",)), "manual": manual, "recidivism_curve": curve,
+    return {"penalized": penalized, "linked": linked, "manual": manual, "recidivism_curve": curve,
             "window_months": int(settings(con)["watch_window_months"])}
 
 
@@ -346,6 +391,83 @@ def backtest():
     ref = max(models, key=lambda m: (m["algo"] == "gbdt", m["model_id"]))
     bt = rows(con, "SELECT * FROM v_backtests WHERE model_id=? ORDER BY obs_year, baseline", (ref["model_id"],))
     return {"models": models, "reference_model_id": ref["model_id"], "by_year": bt, "active": one(con, "SELECT * FROM v_models WHERE status='active'")}
+
+
+# ----------------------------------------------------------------------------- models (train / approve / retire)
+import threading
+TRAIN_STATE: dict = {"running": False, "algo": None, "started_at": None, "result": None, "error": None}
+
+
+def _train_worker(algo: str):
+    from train import train_and_record
+    con = rw()
+    try:
+        asof = settings(con)["data_asof"]
+        mid = train_and_record(con, algo, asof)
+        row = one(con, "SELECT model_id, algo, auc, top100_cov, beats_baseline FROM v_models WHERE model_id=?", (mid,))
+        TRAIN_STATE.update(result=row, error=None)
+    except Exception as e:
+        TRAIN_STATE.update(error=str(e)[:300], result=None)
+    finally:
+        TRAIN_STATE["running"] = False
+
+
+@app.get("/api/v1/models")
+def models_list():
+    con = ro()
+    models = rows(con, "SELECT * FROM v_models ORDER BY model_id DESC")
+    for m in models:
+        m["params"] = json.loads(m["params"]) if m["params"] else {}
+        m["backtests"] = rows(con, "SELECT obs_year, baseline, n_obs, n_pos, auc, top100, lead_days_median FROM v_backtests WHERE model_id=? ORDER BY obs_year, baseline", (m["model_id"],))
+    events = rows(con, "SELECT e.*, m.algo FROM app_model_events e JOIN v_models m ON m.model_id=e.model_id ORDER BY e.event_id DESC LIMIT 30") if False else rows(con, "SELECT * FROM v_model_events ORDER BY event_id DESC LIMIT 30")
+    from features import EVENT_FEATURES, feature_hash
+    from score import FEATURE_ZH
+    from train import BEATS_MARGIN, GAP_DAYS, MIN_POS, SEED
+    return {"models": models, "events": events, "train": TRAIN_STATE, "active": one(con, "SELECT model_id, algo FROM v_models WHERE status='active'"),
+            "features": [{"key": f, "zh": FEATURE_ZH.get(f, f)} for f in EVENT_FEATURES], "feature_hash": feature_hash(),
+            "gate": {"margin": BEATS_MARGIN, "gap_days": GAP_DAYS, "min_pos": MIN_POS, "seed": SEED},
+            "current_method": (one(con, "SELECT batch_method FROM v_scores LIMIT 1") or {}).get("batch_method")}
+
+
+class TrainReq(BaseModel):
+    algo: str = "logreg"
+
+
+@app.post("/api/v1/models/train")
+def models_train(body: TrainReq):
+    if body.algo not in ("gbdt", "logreg"): raise ApiError(400, "BAD_VALUE", "algo 需為 gbdt 或 logreg")
+    if TRAIN_STATE["running"]: raise ApiError(409, "TRAIN_RUNNING", "已有訓練在進行", state="training")
+    TRAIN_STATE.update(running=True, algo=body.algo, started_at=datetime.now().isoformat(timespec="seconds"), result=None, error=None)
+    threading.Thread(target=_train_worker, args=(body.algo,), daemon=True).start()
+    return {"ok": True, "state": "training"}
+
+
+class ApproveReq(BaseModel):
+    actor: str = "demo"
+    force: bool = False
+
+
+@app.post("/api/v1/models/{model_id}/approve")
+def models_approve(model_id: int, body: ApproveReq):
+    from approve import approve as do_approve
+    from score import score_all
+    con = rw()
+    do_approve(con, model_id, body.actor, body.force)
+    r = score_all(con)
+    con.execute("UPDATE app_schedules SET is_stale=1 WHERE is_current=1")
+    return {"ok": True, "active": model_id, "rescored": r["levels"], "method": r["method"]}
+
+
+@app.post("/api/v1/models/{model_id}/retire")
+def models_retire(model_id: int, body: ApproveReq):
+    from approve import retire
+    from score import score_all
+    con = rw()
+    if not one(con, "SELECT 1 FROM v_models WHERE model_id=? AND status='active'", (model_id,)): raise ApiError(409, "NOT_ACTIVE", "此版本不是 active", state="not_active")
+    retire(con, model_id, body.actor, "manual")
+    r = score_all(con)
+    con.execute("UPDATE app_schedules SET is_stale=1 WHERE is_current=1")
+    return {"ok": True, "rescored": r["levels"], "method": r["method"]}
 
 
 # ----------------------------------------------------------------------------- data quality / settings / feedback
@@ -415,15 +537,17 @@ def export(scope: str = "season", format: str = "xlsx", town: str | None = None,
     if format not in ("xlsx", "csv"): raise ApiError(400, "BAD_FORMAT", "format 需為 xlsx 或 csv")
     con = ro()
     if scope == "season":
-        data = season_list(); items = [{**r, "層": "已裁罰"} for r in data["penalized"]] + [{**r, "層": "連坐待確認"} for r in data["linked"]]
+        data = season_list(); items = [{**r, "層": "已裁罰"} for r in data["penalized"]] + [{**r, "層": "同負責人待確認"} for r in data["linked"]]
+        for it in items:
+            it["causes_text"] = "、".join(f"{c['label']}×{c['n']}" for c in it.get("causes", [])); it["focus_text"] = "；".join(it.get("focus", []))
     elif scope == "schedule":
         items = schedule_get()["visits"]
     else:
         items = rankings(town=town, level=level or "高,中,低", top_n=top_n or int(settings(con)["top_n_default"]), size=2000)["items"]
     if not items: raise ApiError(422, "EMPTY_LIST", "無資料可匯出")
-    cols = ["title", "town", "type", "level", "rank", "reason", "tier", "層", "linker_code", "week_no", "inspector_no", "n_events", "last_event"]
+    cols = ["title", "town", "type", "score", "level", "rank", "reason", "causes_text", "focus_text", "tier", "層", "linker_name", "linker_code", "week_no", "inspector_no", "n_events", "last_event"]
     cols = [c for c in cols if any(c in it for it in items)]
-    head = {"title": "園名", "town": "行政區", "type": "立案別", "level": "等級", "rank": "排名", "reason": "理由", "tier": "層別", "層": "層", "linker_code": "負責人代碼", "week_no": "週", "inspector_no": "稽查員", "n_events": "裁罰事件數", "last_event": "最近裁罰"}
+    head = {"title": "園名", "town": "行政區", "type": "立案別", "score": "分數", "causes_text": "根因（36 月違規類型）", "focus_text": "稽查重點", "level": "等級", "rank": "排名", "reason": "理由", "tier": "層別", "層": "層", "linker_name": "負責人", "linker_code": "負責人代碼", "week_no": "週", "inspector_no": "稽查員", "n_events": "裁罰事件數", "last_event": "最近裁罰"}
     fname = f"watchdog-{scope}-{date.today().isoformat()}"
     if format == "csv":
         buf = io.StringIO(); w = csv.writer(buf); w.writerow(head[c] for c in cols)

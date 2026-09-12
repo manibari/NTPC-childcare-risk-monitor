@@ -65,10 +65,10 @@ def test_views_never_expose_names(tmp_path, synthetic_data):
     con = connect(b.db_path, readonly=True)
     for view in ("v_preschools", "v_penalties", "v_penalty_events", "v_ratios", "v_linkers", "v_ntpc_penalty_summary"):
         cols = [r[1] for r in con.execute(f"PRAGMA table_info({view})")]
-        for banned in ("owner", "operator", "actor", "actor_name", "tel", "address", "key_name"):
+        for banned in ("operator", "actor", "actor_name", "tel", "address", "key_name"):  # owner name is public registry data (Peter 2026-09-12); it travels as v_linkers.name
             assert banned not in cols, f"{view} exposes {banned}"
     dump = " ".join(str(r) for v in ("v_penalties", "v_ntpc_penalty_summary") for r in con.execute(f"SELECT * FROM {v}"))
-    assert "王小明" not in dump and "李某" not in dump
+    assert "李某" not in dump  # 行為人 (penalised individual) never appears
 
 
 def test_orphan_check_reports_missing_school(tmp_path, synthetic_data):

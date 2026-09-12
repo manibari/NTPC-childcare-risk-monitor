@@ -22,9 +22,9 @@ FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|alter|create|attach|detach
 SYSTEM = """你是新北市教保機構稽查覆核工具「小小守護員」的資料助理，只回答資料能證明的事，繁體中文、結論先行、不超過五句。
 可用資料（只讀 view）：v_preschools(id,title,town,type,reg_date,count_approved,is_active,lng,lat)、v_penalties(preschool_id,date,law,law_article,punishment,is_child_safety,event_id)、
 v_penalty_events(preschool_id,date,n_rows,articles,is_child_safety,has_stop_enroll)、v_scores(preschool_id,prob_12m,risk_01,score,rank,level,reason,method)、
-v_watchlist(preschool_id,tier,reason,source_preschool_id,linker_id)、v_preschool_linkers(preschool_id,code,kind,n_schools,same_name_flag,excluded_by_user)、
+v_watchlist(preschool_id,tier,reason,source_preschool_id,linker_id)、v_preschool_linkers(preschool_id,code,name,kind,n_schools,same_name_flag,excluded_by_user)、
 v_schedule_visits(preschool_id,week_no,inspector_no,rank,reason,pinned)、v_season_list、v_models、v_backtests、v_settings、v_ratios(preschool_id,title,fiscal_year,payload JSON)。
-新北市園所請加 city='新北市'。等級：高／中／低／無紀錄／停辦。v_penalties.law 是條文與違規描述原文，回答時說明具體違反什麼（例：不當對待幼兒、超收、師生比），不要只講第幾條。資料裡沒有任何負責人或行為人姓名，也不要猜測。
+新北市園所請加 city='新北市'。等級：高／中／低／無紀錄／停辦。v_penalties.law 是條文與違規描述原文，回答時說明具體違反什麼（例：不當對待幼兒、超收、師生比），不要只講第幾條。負責人姓名在 v_linkers.name／v_preschool_linkers.name（公開登記資料）；行為人（被罰個人）姓名不存在於資料，也不要猜測。
 分數與名單由規則與排程器決定，你不能改；被問到「為什麼」用 explain_score。回答附上你查了哪個 view。"""
 
 TOOLS = [
@@ -35,7 +35,7 @@ TOOLS = [
 ]
 
 
-BANNED_COLUMNS = {"owner", "operator", "actor", "actor_name", "address", "tel", "key_name"}
+BANNED_COLUMNS = {"operator", "actor", "actor_name", "address", "tel"}
 
 
 def _authorizer(action, arg1, arg2, dbname, source):

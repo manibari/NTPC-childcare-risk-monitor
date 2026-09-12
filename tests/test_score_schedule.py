@@ -71,3 +71,16 @@ def test_schedule_capacity_zero_and_excluded(tmp_path, synthetic_data):
     con.execute("UPDATE app_settings SET value='1' WHERE key='n_inspectors'")
     r = solve(load_problem(con), excluded={"A"}, max_time=5)
     assert all(v["preschool_id"] != "A" for v in r["visits"])
+
+
+def test_schedule_town_quota_and_presets(tmp_path, synthetic_data):
+    con = _con(tmp_path, synthetic_data)
+    score_all(con, asof="2025-12-31")
+    con.execute("UPDATE app_settings SET value='1' WHERE key='n_inspectors'")
+    con.execute("UPDATE app_settings SET value='2' WHERE key='visits_per_inspector_week'")
+    con.execute("UPDATE app_settings SET value='1' WHERE key='quarter_weeks'")
+    prob = load_problem(con)
+    r = solve(prob, town_min={"板橋區": 2}, max_time=5, objective="cluster")
+    assert r["town_visits"]["板橋區"] >= 2 and r["objective_preset"] == "cluster"
+    with pytest.raises(PipelineError):
+        solve(prob, town_min={"板橋區": 99}, max_time=5)
