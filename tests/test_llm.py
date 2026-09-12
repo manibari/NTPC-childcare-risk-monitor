@@ -79,6 +79,8 @@ def test_tool_round_trip(provider, tmp_path):
         result = service.ask('有多少？')
     assert len(requests) == 2
     assert result['answer'] == '共 42，來源 v_example。'
+    assert result['provider'] == provider
+    assert result['model'] == 'test-model'
     assert result['tool_calls'][0]['n'] == 1
     with sqlite3.connect(db) as con:
         assert con.execute('SELECT answer FROM app_agent_turns').fetchone()[0] == result['answer']
@@ -104,7 +106,9 @@ def test_api_errors_do_not_expose_upstream_secrets(monkeypatch, tmp_path):
     monkeypatch.setattr(service, 'ask', fail)
     monkeypatch.setattr(main, 'agent', service)
     with TestClient(main.app) as api:
-        response = api.post('/api/v1/ask', json={'question': 'hello'})
+        response = api.post('/api/v1/ask', json={'question': 'hello', 'provider': 'anthropic'})
+        assert response.status_code == 400
+        response = api.post('/api/v1/ask', json={'question': 'hello', 'provider': 'bedrock_openai'})
         assert response.status_code == 503
         assert 'secret-bedrock-key' not in response.text
         service.config = None
@@ -140,3 +144,18 @@ def test_malformed_tool_arguments_are_returned_as_tool_errors(arguments, tmp_pat
         result = service.ask('hello')
     assert len(requests) == 2
     assert result['tool_calls'][0]['error']
+
+
+def test_main_status_contract_uses_configured_provider_only(tmp_path):
+    from app.agent import AgentService
+    service = AgentService(tmp_path / 'unused.sqlite', config=config())
+    status = service.status()
+    assert status['enabled'] is True
+    assert status['provider'] == 'bedrock_openai'
+    assert status['available'] == ['bedrock_openai']
+    assert status['models'] == {'bedrock_openai': 'test-model'}
+    assert status['labels']['bedrock_openai'] == 'AWS Bedrock'
+    assert 'bedrock-test' not in json.dumps(status)
+    service.config = None
+    assert service.status()['available'] == []
+    assert service.status()['provider'] is None

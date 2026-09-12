@@ -567,7 +567,7 @@ def data_quality():
 @app.get("/api/v1/settings")
 def settings_get():
     con = ro(); s = settings(con)
-    return {"settings": s, "agent_enabled": agent.enabled, "active_model": one(con, "SELECT model_id, algo FROM v_models WHERE status='active'")}
+    return {"settings": s, "agent_enabled": agent.enabled, "agent": agent.status(), "active_model": one(con, "SELECT model_id, algo FROM v_models WHERE status='active'")}
 
 
 ALLOWED = {"n_inspectors": (int, 0, 50), "visits_per_inspector_week": (int, 0, 100), "quarter_weeks": (int, 1, 26), "high_threshold": (float, 0, 1), "mid_threshold": (float, 0, 1),
@@ -647,12 +647,15 @@ class AskReq(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     page: str = ""
     session_id: str = "demo"
+    provider: str | None = None
 
 
 @app.post("/api/v1/ask")
 def ask(body: AskReq):
     if not agent.enabled:
         raise ApiError(409, "AGENT_DISABLED", agent.config_error or "LLM 設定不完整，問答停用", "在 .env 設定 provider、model、base URL 與金鑰後重啟", state="agent_disabled")
+    if body.provider and body.provider != agent.status()["provider"]:
+        raise ApiError(400, "BAD_PROVIDER", "目前未啟用所選問答服務", "請重新整理頁面後再試")
     try:
         return agent.ask(body.question, body.page, body.session_id)
     except Exception:  # LLM outage → degrade, never 500
@@ -661,7 +664,7 @@ def ask(body: AskReq):
 
 @app.get("/api/v1/health")
 def health():
-    return {"ok": True, "db": DB_PATH.exists(), "agent": agent.enabled}
+    return {"ok": True, "db": DB_PATH.exists(), "agent": agent.enabled, "agent_status": agent.status()}
 
 
 WEB = ROOT / "web"

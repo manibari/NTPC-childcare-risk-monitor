@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 
 from openai import OpenAI
 
+PROVIDER_LABELS = {"anthropic": "Claude", "bedrock_openai": "AWS Bedrock"}
+
 BEDROCK_BASE_URL = "https://bedrock-mantle.us-west-2.api.aws/openai/v1"
 
 

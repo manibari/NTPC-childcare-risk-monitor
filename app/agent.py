@@ -21,7 +21,7 @@ import time
 from datetime import date
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-from app.llm import LLMConfig, create_client
+from app.llm import LLMConfig, PROVIDER_LABELS, create_client
 MAX_ROWS = 200
 FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|vacuum|reindex|begin|commit|rollback)\b", re.I)
 
@@ -74,6 +74,13 @@ class AgentService:
     @property
     def enabled(self) -> bool:
         return self.config is not None
+
+    def status(self) -> dict:
+        provider = self.config.provider if self.config else None
+        return {"enabled": self.enabled, "provider": provider,
+                "available": [provider] if provider else [],
+                "models": {provider: self.config.model} if self.config else {},
+                "labels": PROVIDER_LABELS}
 
     # ------------------------------------------------------------------ tools
     def _ro(self) -> sqlite3.Connection:
@@ -176,4 +183,5 @@ class AgentService:
         con.execute("INSERT INTO app_agent_turns(session_id, page, question, answer, tool_calls, latency_ms, created_at) VALUES (?,?,?,?,?,?,?)",
                     (session_id, page, question, answer, json.dumps(calls, ensure_ascii=False, default=str), latency, date.today().isoformat()))
         con.commit(); con.close()
-        return {"answer": answer, "tool_calls": calls, "latency_ms": latency}
+        return {"answer": answer, "tool_calls": calls, "latency_ms": latency,
+                "provider": self.config.provider, "model": self.config.model}
