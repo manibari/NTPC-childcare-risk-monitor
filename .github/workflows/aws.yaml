@@ -1,0 +1,91 @@
+name: Test and deploy to AWS
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install '.[dev]'
+      - run: python -m pytest
+      - name: Build and smoke test Compose
+        env:
+          APP_IMAGE: watchdog:ci
+        run: |
+          docker build -t "$APP_IMAGE" .
+          docker compose up -d --wait --wait-timeout 180
+          curl --fail http://localhost:12020/api/v1/health
+          curl --fail --output /dev/null http://localhost:12020/
+      - name: Container logs
+        if: failure()
+        env:
+          APP_IMAGE: watchdog:ci
+        run: docker compose logs
+      - name: Cleanup
+        if: always()
+        env:
+          APP_IMAGE: watchdog:ci
+        run: docker compose down -v
+  deploy:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: ec2-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-west-2
+      ECR_REPOSITORY: hackthron_0912
+      EC2_HOST: 44.249.44.27
+      EC2_USER: ubuntu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::861560493301:role/github-actions-ecr
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Build and push image
+        run: |
+          set -euo pipefail
+          registry="861560493301.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$registry"
+          image="$registry/$ECR_REPOSITORY:$GITHUB_SHA"
+          docker build -t "$image" .
+          docker push "$image"
+          echo "APP_IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Deploy Compose over SSH
+        run: |
+          set -euo pipefail
+          [[ "$EC2_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$AWS_REGION" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]
+          [[ "$ECR_REPOSITORY" =~ ^[a-z0-9][a-z0-9/_-]*$ ]]
+          target="$EC2_USER@$EC2_HOST"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 "$target" 'mkdir -p ~/watchdog/deploy'
+          scp compose.yaml "$target:watchdog/compose.yaml"
+          scp deploy/nginx.conf deploy/deploy.sh "$target:watchdog/deploy/"
+          ssh -o BatchMode=yes "$target" "bash ~/watchdog/deploy/deploy.sh '$AWS_REGION' '$APP_IMAGE'"
+      - name: Remove SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
