@@ -1,106 +1,176 @@
-# Smart Watchdog — 實作計畫
+<!-- /autoplan restore point: /Users/manibari/.gstack/projects/NTPC-childcare-risk-monitor/main-autoplan-restore-20260912-014852.md -->
+# Task Plan — Smart Watchdog：教保機構稽查覆核與人力配置（US-1~10）
 
-## Goal
-在既有 SQLite 四張表之上長出「觀察點 → 模型 → 分數 → 連坐 → 名單 → 匯出」管線與 8 畫面 demo，
-並產出黑客松提案 deck。依 `docs/design/2026-09-12-smart-watchdog-sd.md`（SD）與 `docs/requirements/smart-watchdog.md`（US-1..7）。
+> 2026-09-12 立案，同日過 `/gstack-autoplan`（CEO / Design / Eng / DX 四階段，Codex + Claude 子代理雙聲道，
+> 4×6/6 共識，46 條決策，最終 gate Peter 全部接受）。審查全文：`docs/reviews/2026-09-12-autoplan.md`。
+> SoT 鏈：`docs/requirements/smart-watchdog.md`（US-1~10）→ `docs/flows/smart-watchdog-flow.md` →
+> `mockups/smart-watchdog.html` → `docs/design/2026-09-12-smart-watchdog-sd.md`（SD Full + 5 圖）。
+>
+> goal：在有限稽查人力下，給承辦一份「這季該去哪、為什麼、跑得完」的行程與證據包；
+> 交付 = 可操作 demo（真資料）+ 提案 deck。歸位：新北 AI 黑客松・教育局命題。
 
-槓桿順序（lever-first）：先把**回測數字**跑出來（Phase 2），因為它決定 deck 主張是「模型」還是「規則」；
-畫面與 deck 之後才有東西可放。
+## 架構定調（review 定案，不再重議）
+
+1. **定位＝稽查覆核與資源配置工具，不是預言機（D1）**：預測的是「未來 12 個月內被裁罰」不是傷害；deck 首頁與總覽頁尾明寫 surveillance bias；提供「從未被稽查園覆蓋率」警語。
+2. **事件層為唯一計數單位（Eng C2，實查）**：`penalty_events` = 園×日期去重（1,474 列 → 1,004 事件，3 列重複）。回頭客 234/487 = **48%**、貢獻 **75%**、事件後 12 個月再犯 **26–33%**。deck 一律用事件層數字。
+3. **規則為主、模型驗證（gate 品味 1）**：回頭客燈號（事件次數 × 近期性 × 兒安條款）是排序主幹；GBDT 只在回測「前 100 覆蓋率且 AUC 皆優於按次數排序」時取代規則做細排序。無裁罰史園一律「無紀錄」，不出屬性分（E3）。
+4. **人力是系統內約束（E1，Peter）**：settings 存 `n_inspectors`、`visits_per_inspector_week`、`quarter_weeks`；CP-SAT 排程輸出 週×稽查員 行程；覆蓋為軟約束（權重 risk_01）、容量硬約束、season_list 必訪、釘選固定、排除移除、停辦園不排、同 owner-link 與同區同週加分；`max_time 20s`、seed 固定；INFEASIBLE/UNKNOWN → 422 帶原因。
+5. **連坐＝人工確認線索（E5）**：名單分「已裁罰」「連坐待確認」兩層；不進分數；排除同名同步反映排名／匯出／圖。
+6. **匿名化架構層擋（Eng H1，跨階段主題 2）**：API 與問答只讀 `v_*` 去識別 view（無 actor_name/owner/operator/tel/address）；demo 一律去識別園名（`anonymize_titles`）；契約測試「任何回應 grep 姓名清單 = 0」為 REGRESSION 級。
+7. **表分兩族（Eng A1）**：`src_*` 每次更新單一交易 DROP/CREATE（WAL、busy_timeout、schema 斷言、筆數驟降中止、孤兒檢查）；`app_*` 持久永不 drop；不 rename 檔。
+8. **時間切分零洩漏（Eng C1/A4/A5）**：觀察點 = 事件 +1 天 + 季末，`asof ≥ reg_date`；標籤 = asof 後 31–365 天內新事件；特徵分事件史（進回測）與快照屬性（`snapshot=1` 不進回測）；walk-forward 測試年 Y 訓練集 `asof ≤ Y-01-01 − 365d`；`models` 含 `feature_hash`、`eval_year`、`seed`；固定 holdout 年比版本；單一 active 用 partial unique index，只有 Approver 改狀態。
+9. **Agentic 問答唯讀（E16，Peter；比照 PTI-ARES AgentService）**：工具集 = `sql_readonly`（ro URI + authorizer 只放 v_* + progress 5s + AST allowlist + LIMIT 200）、`explain_score`、`get_schedule`、`get_finance`；無寫入工具；每輪 `app_agent_turns` 留痕；無 Anthropic key 時抽屜 disabled、其餘 100% 可用。
+10. **設計系統＝rivendell `dashboard-next/DESIGN.md`（Peter）+ 三條衍生**：CJK fallback `PingFang TC, Noto Sans TC`；低風險 = `--text-muted`（不用綠）；等級 = 8px 色點 + 文字。立案別純文字；圖表內嵌 SVG 三型單綠；無藍紫、無陰影、Lucide。
+11. **畫面收斂（gate User Challenge，Peter 接受）**：主線 5（總覽／排名／詳情含關聯圖 hero／排程／本季名單）+ 維護區 3 次要（回測／資料品質／設定）+ 問答抽屜 + 匯出對話框。
+12. **DX 底線（DX 雙聲道）**：`make bootstrap` 從 clone 到真資料排名頁 ≤ 5 分鐘、不需 raw PDF、不需 OCR；`data/demo/watchdog-demo.sqlite` 入 repo；`update.py` 完整 CLI 契約，exit 0/1 部分/2 中止/64 用法；`PipelineError(problem, cause, fix)`；API `/api/v1`、409+state 取代 503。
+13. **財報＝附錄三燈（E4）**：人事費率、每核定名額收入、內控查核表 V/X（+補助依賴度）；不宣稱預測裁罰。
+
+## 兩刀總綱（scope 經 review 確認）
+
+- **刀 1（資料與模型）**：P0 DB 加固 + 事件去重 + tests 骨架 → P1 Linker → P2 觀察點/訓練/回測/ROI → P3 評分 → P3b 排程。
+  驗收＝pytest 全綠（含 7 條 REGRESSION 級）+ 回測表可重跑（固定 seed 兩次相等）+ 排程在假設人力（3 人 × 8 次/週 × 13 週）下產生行程與覆蓋率 + findings.md 有事件層數字與 ROI。
+- **刀 2（交付）**：P4 API + 匯出 → P4b 問答 → P5 Web 5+3 畫面 → P6 update.py + ingest + bootstrap → P7 驗收（review / qa-dataflow / qa）→ P8 deck。
+  驗收＝`make bootstrap` ≤ 5 分鐘 + Playwright 三條 journey + `/qa-dataflow` 拿 SD §6 四張 target 圖比 actual + deck storyline signed-off。
+- 刀 1 先行；**P2 回測數字是 go/no-go**：決定 deck 主張是規則還是模型（架構定調 3）。
 
 ## Phases
 
-### Phase 0: 資料層加固（SD §2 Delta 的 `~` 與持久表）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] `build_db.py`：`preschools.id` PK、`monthly` INTEGER、`penalties.penalty_id` AUTOINCREMENT、`is_safety`(§30/33/43)
-  - [ ] `build_db.py` 改為只重建來源表；新增 `scripts/db.py`（連線、schema、持久表建表：models/backtests/scores/watchlist/season_list/feedback/pipeline_runs/settings/evaluations）
-  - [ ] `settings` 預設：high=75, mid=50, top_n=100, watch_window_months=12, stale_days=90, data_asof
-  - [ ] `pipeline_runs` 寫入 helper（stage, n_rows, seconds, n_failed, ok, message）
-  - [ ] 驗證：`sqlite3 .schema`、筆數不變（7,688 / 7,065 / 155）
-- **Notes**: 準公共判定 = `pre_public` 非空（SD §8-7）
+### 刀 1
 
-### Phase 1: 負責人／法人勾稽與連坐（Linker；US-3）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] `scripts/linker.py`：owner → linkers(kind=owner)、園名括號「委託⋯辦理」→ linkers(kind=operator)；code O-xxx / L-xxx；n_schools
-  - [ ] `preschool_linkers`：同名判定（同 owner、地址距離 > 5 km → same_name_flag=1）；`excluded_by_user` 依 (kind,key_name,preschool_id) 回填
-  - [ ] `watchlist`：reason=penalised（12 個月內有裁罰）/ owner_link / operator_link；source_preschool_id、source_penalty_id、linker_id；is_current
-  - [ ] 驗證：新北 119 位多園負責人、連坐拉進 ≈96 園（對照 docs/exploration.md）
-- **Notes**: 連坐不進分數（SD §7）
+- [ ] **P0 資料層加固**：`scripts/db.py` DBBuilder（src_/app_、單交易重建、WAL、schema 斷言、筆數驟降、孤兒檢查、app_ 永不 drop、`schema_version`）；`penalty_events` 去重；`is_child_safety`；`app_settings` 預設（人力三參數、門檻、top_n、觀察期、stale_days、anonymize_titles）；`app_pipeline_runs`；`pyproject.toml` + `.python-version` + `.env.example`；`tests/` 骨架 + 去重／DB 保留兩條測試。exploration/findings/memory 數字改事件層。
+- [ ] **P1 Linker**：owner / 委辦法人 → `app_linkers`（持久、首次配碼永不回收）、`preschool_linkers`（同名判定 5 km）、`app_watchlist` 兩層；kiang 覆蓋率驗證腳本（T5）。
+- [ ] **P2 觀察點／訓練／回測／ROI**：`features.py`（事件史 vs 快照、洩漏 assert、31–365 標籤、≥ reg_date）；`train.py`（walk-forward gap 365、GBDT + 邏輯迴歸、三 baseline、feature_hash/eval_year/seed、`app_models`+`app_backtests`+`app_model_events`）；`approve.py`（單一 active、降幅規則）；`roi.py`（歷史年重播排程 vs 輪流）。**Go/no-go 決定主張。**
+- [ ] **P3 評分**：`score.py`（rule → model 條件切換 → 無紀錄；`score_batch_id` 交易切 current；`risk_01`；等級絕對門檻 + 前 N；top 理由白話句）。
+- [ ] **P3b 排程**：`schedule.py`（CP-SAT，架構定調 4）+ `app_schedules`/`app_schedule_visits`；候選前 300 + 必訪 + 連坐園。
 
-### Phase 2: 觀察點、特徵、訓練、回測、核准（US-4）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] `scripts/features.py`：觀察點 (a) 每筆裁罰 +1 天 (b) 每季末全園；20 個特徵只用 asof 之前資料；`label_repeat_12m`、`label_available`
-  - [ ] `scripts/train.py`：時間切分（按 obs_year 逐年 walk-forward）；GBDT（sklearn HistGradientBoosting）+ 邏輯迴歸對照；三 baseline（隨機／按次數／按最近距今）；AUC、PR-AUC、top50/100/200 覆蓋率、提前天數中位；寫 models(status=trained)+backtests；`beats_baseline`
-  - [ ] `scripts/approve.py`：首版自動 active；之後 AUC 降 >0.05 留 trained 並警示
-  - [ ] 驗證：正例 ≥ 50；回測表可重跑（固定 seed）；把數字寫進 findings.md（deck 用）
-- **Notes**: 主檔屬性是現在快照（SD §8-1），deck 註明
+### 刀 2
 
-### Phase 3: 評分（Scorer；US-1/US-2 資料面）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] `scripts/score.py`：active model 對 data_asof 當天觀察點評分；`beats_baseline=0` → rule_count；無裁罰史 → attribute；score = 機率分位數 ×100；level 依 settings；top_features（SHAP 或 permutation，前 5）；is_current 換批
-  - [ ] 驗證：1,216 列、rank 1..1216、等級分布合理
-- **Notes**:
+- [ ] **P4 API + 匯出**：FastAPI `/api/v1/*`（overview/rankings/preschools/linkers/backtest/schedule/season-list/export/data-quality/settings/feedback）；`v_*` 去識別 view；錯誤 envelope（request_id/retryable/hint）；409+state；`X-Demo-Token`；契約測試 + 姓名性質測試。
+- [ ] **P4b 問答**：`app/agent.py` AgentService（架構定調 9）+ `POST /api/v1/ask`（串流）+ `app_agent_turns`；每頁 3 個建議問題；demo 3 題離線快取；T9 稽查重點三行（P2）。
+- [ ] **P5 Web**：Next.js + 專案 DESIGN.md；主線 5 + 維護區 3 + 抽屜 + 匯出；八張圖（覆蓋率曲線／提前天數／再犯累積／區×法條熱圖／36 月趨勢／各區派工／產能 vs 覆蓋／該園間隔 vs 全市）；10×5 互動狀態表；desktop 1440；a11y 規格；mockup 先換膚重排（D2/D3）當實作參考。
+- [ ] **P6 管線與 bootstrap**：`update.py` 完整契約 + `PipelineError` + 固定 log；`ingest.py`（kiang 兩 JSON、新北公告、評鑑 spike；`raw-web/<date>/`）；`Makefile bootstrap`；`data/demo/watchdog-demo.sqlite`；OCR 產物 release asset；README Quickstart；data_asof = max(event date)。
+- [ ] **P7 驗收**：`/gstack-review`（每 Phase 收尾）；`/qa-dataflow`（HARD GATE，target vs actual）；`/gstack-qa` + `/gstack-design-review`；`/gstack-careful` 於刪表前。
+- [ ] **P8 deck**：storyline.md（Peter 主筆）→ `/slide-office-hours` signed-off → `/sales-deck-design` → `/de-slopify` → `/gstack-document-release`。首頁承認限制；主視覺＝關聯圖 + 覆蓋率曲線；數字用事件層 + ROI。
 
-### Phase 4: API 與匯出（SD §4；US-5/6/7 資料面；ops #2 #3 #4 #6）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] FastAPI `app/`：/overview /rankings /preschools/{id} /linkers/{code}/graph PUT linkers exclude /backtest /season-list /export /data-quality /settings /feedback；統一錯誤形狀；匿名化白名單
-  - [ ] `scripts/export.py`：CSV(UTF-8 BOM)/xlsx；空名單 422
-  - [ ] 契約測試：每端點成功 + 主要錯誤碼各一
-- **Notes**: API 綁 localhost
+## What already exists（reuse，不重造）
 
-### Phase 5: Web 8 畫面（mockup 已定；US-1..7 畫面面）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] Next.js + antd v6 scaffold（ChimesFlow 契約；lockfile 決定 pnpm/npm）
-  - [ ] 總覽、排名（篩選/加入名單/stale 警示/錯誤卡）、詳情（時間軸/特徵/連坐來源/財務燈號）、關聯圖、回測儀表（含「不優於規則」警示）、匯出對話框、資料品質、設定、回饋按鈕
-  - [ ] 對照 mockup 截圖逐頁比對
-- **Notes**:
+- `scripts/build_db.py`（重寫成 DBBuilder，保留 kiang 解析）、`ocr_batch.py`、`parse_statements.py`（總計列錨定 + 恆等式）、`compare_ratios.py`（拆 reconcile/ratios）
+- `~/code/Verdandi-OR/apps/api/engine/scheduling.py`：CP-SAT 建模習慣（max_time、seed、覆蓋型約束）
+- `~/code/PTI-ARES/docs/design/2026-09-11-prepare-check-agentic-sd.md`：AgentService 唯讀工具集 + agent_turn 留痕
+- `~/code/rivendell/dashboard-next/DESIGN.md`：設計系統；`~/.claude/skills/chart-design/styles/ntpc-smart-watchdog.md`：圖表樣式（改森林綠）
+- `docs/design/diagrams/*`：四張 target 圖（qa-dataflow 對照用）
 
-### Phase 6: 更新管線 CLI 與抓取（US-6）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] `scripts/ingest.py`：kiang 兩 JSON、新北裁罰公告、全國網基礎評鑑（30 分鐘 spike；不通則 evaluations 空）；失敗沿用上次檔
-  - [ ] `scripts/update.py`：九階段串接、pipeline_runs、DBBuilder 筆數驟降中止、data_asof 更新、exit code 0/1/2
-  - [ ] 驗證：`--no-fetch` 全程可重跑 < 5 分鐘
-- **Notes**:
+## NOT in scope（明列，防 silent drop）
 
-### Phase 7: 驗收（G4）
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] `/gstack-review`（每個 Phase 收尾）
-  - [ ] `/qa-dataflow`：拿 SD §6 四張 target 圖對 actual，出落差表
-  - [ ] `/gstack-qa` + `/gstack-design-review`（8 畫面）
-  - [ ] `/gstack-careful` 於任何刪表 / 重建前
-- **Notes**:
+- 社群輿情特徵（TODOS；只允許 P8 一頁 spike 若時間有餘）
+- 承辦回饋回流成標籤（TODOS）
+- 多使用者、登入、稽核日誌、排程自動執行、部署到政府環境
+- 私立園財務（無公開資料）；把連坐當模型特徵；LLM 寫入任何判定／名單／排程
+- 手機版、深色模式、多輪對話記憶
+- Postgres／多程序
 
-### Phase 8: 提案 deck
-- **Status**: `not_started`
-- **Tasks**:
-  - [ ] storyline.md（Peter 主筆，AI 補洞）→ `/slide-office-hours` red team → signed-off
-  - [ ] `/sales-deck-design` 或 `/slide-workflow` 生成；圖表走 `/chart-design`
-  - [ ] `/de-slopify` 文字打磨；`/gstack-document-release`
-- **Notes**: 主張依 Phase 2 數字決定（模型 vs 規則）
+## Failure modes（新路徑逐條）
+
+| 路徑 | 生產失敗情境 | 測試 | 錯誤處理 | 使用者可見？ |
+|---|---|---|---|---|
+| src_ 重建 | kiang 改欄位 / 筆數驟降 / 中斷 | P0 ★ | schema 斷言、>20% 中止、單交易 | CLI PipelineError ✅ |
+| 事件去重 | 同案多法條算兩次 | P0 ★ | 園×日期 | 數字正確 ✅ |
+| 特徵 | asof 後資料混入 | P2 ★ | assert 中止 | CLI ✅ |
+| 訓練 | 正例 < 50 / 標籤窗超出 | P2 | 不產版本 + 警示 | 設定頁 ✅ |
+| 核准 | 兩個 active | P2 ★ | partial unique index | 不可能 ✅ |
+| 評分 | 批次中斷半新半舊 | P3 ★ | score_batch 交易切換 | 一致 ✅ |
+| 排程 | 容量 0 / 不可行 / 逾時 / 停辦園 | P3b | 422 原因 / 近似解旗標 / 排除 | 排程頁 ✅ |
+| 問答 | 注入 / 非 SELECT / 姓名欄 / LLM 掛 | P4b ★ | authorizer + AST + LIMIT + 降級 | 拒答／稍後再試 ✅ |
+| 匿名化 | 白名單漏欄 | P4 ★ | v_* view + 性質測試 | — ✅ |
+| 匯出 | 空名單 | P4 | 422 | 「無資料」✅ |
+| bootstrap | 無 raw / 無 Vision / 無 key | P6 | --skip-ocr、問答 disabled | 仍可跑 ✅ |
+
+無「無測試＋無處理＋靜默」的 critical gap。★ = REGRESSION 級。
+
+## Parallelization
+
+| Step | Modules | Depends on |
+|---|---|---|
+| P0 | scripts/db, events, tests/, pyproject | — |
+| P1 | scripts/linker | P0 |
+| P2 | scripts/features, train, approve, roi | P0, P1 |
+| P3 | scripts/score | P2 |
+| P3b | scripts/schedule | P3 |
+| P4 | app/ | P1–P3b 契約（§4 先凍結） |
+| P4b | app/agent | P4 |
+| P5 | web/, mockups/, DESIGN.md | P4 契約 + D1/D2/D3 |
+| P6 | scripts/update, ingest, Makefile | P0 |
+
+Lane A: P0→P1→P2→P3→P3b｜Lane B: P6（只依 P0）｜Lane C: D1→D2→D3（設計，獨立）→ P4→P4b→P5（等 A 的 §4 凍結）。A 與 B、C 前段可平行；衝突點：A 與 C 都碰 §4 契約 → P3 前凍結。
+
+## Implementation Tasks（autoplan 彙整 30 條，依 P 排）
+
+- [ ] **T1 (P1, CC ~2h)** — scheduler — CP-SAT 排程 + 人力 settings + schedules 表 + 釘選/排除重解｜E1/Codex#6｜Verify: 假設人力產生行程、容量 0 → 422
+- [ ] **T2 (P1, CC ~30min)** — features — 弱訊號特徵 + 無紀錄 + 兒安燈號｜E2/E3/E12｜Verify: 無裁罰史園 method=none
+- [ ] **T3 (P1, CC ~2h)** — agent — AgentService 唯讀四工具 + agent_turns + 匿名化｜E16/S3.1｜Verify: 三題成功、四類拒答
+- [ ] **T4/E9 (P1, CC ~2h)** — tests — pytest + Playwright + 7 條 REGRESSION 級｜S6.1｜Verify: 全綠
+- [ ] **T5 (P1, CC ~15min)** — data — kiang 覆蓋率驗證｜Claude F5｜Verify: findings.md 有覆蓋率
+- [ ] **T7 (P1, CC ~1h)** — backtest — ROI 重播｜E9｜Verify: 多抓幾家／少跑幾趟數字
+- [ ] **T10 (P1, CC ~20min)** — docs — SD 補三表、risk_01、失敗表、權限段、§8 SOP 假設（本次已做）
+- [ ] **D1 (P1, CC ~30min)** — design-system — 專案 DESIGN.md + chart style（本次已做）
+- [ ] **D2 (P1, CC ~1h)** — mockup — 換膚重排：英雄覆蓋率、側欄分區、理由白話句、立案別純文字、等級色點、無陰影
+- [ ] **D3 (P1, CC ~1h)** — mockup — 畫面 9 名單、10 排程、問答抽屜
+- [ ] **D4 (P1, CC ~20min)** — spec — 10×5 狀態表 + desktop 1440 + a11y 進 requirement（本次已做）
+- [ ] **E1 (P1, CC ~1h)** — db — DBBuilder src_/app_ 重寫
+- [ ] **E2 (P1, CC ~20min)** — events — penalty_events + 數字修正（文件部分本次已做）
+- [ ] **E3 (P1, CC ~1h)** — features — 觀察點 ≥ reg_date、31–365、事件史/快照、洩漏 assert
+- [ ] **E4 (P1, CC ~1h)** — train — walk-forward gap 365、feature_hash、holdout、seed
+- [ ] **E5 (P1, CC ~30min)** — score — score_batch 交易、絕對門檻 + 前 N
+- [ ] **E6 (P1, CC ~30min)** — linker — 持久碼、同名、兩層 watchlist
+- [ ] **E7 (P1, CC ~2h)** — schedule —（併 T1）
+- [ ] **E8 (P1, CC ~1h)** — agent — sql_readonly 安全 + v_* view（併 T3）
+- [ ] **X1 (P1, CC ~30min)** — bootstrap — pyproject、Makefile、README Quickstart、.env.example
+- [ ] **X2 (P1, CC ~20min)** — demo-data — demo SQLite 入 repo；OCR 產物 release asset
+- [ ] **X3 (P1, CC ~30min)** — cli — update.py 契約 + PipelineError + log
+- [ ] **T6 (P2, CC ~1h)** — finance — 內控查核表 + 補助依賴度
+- [ ] **T8 (P2, CC ~1h)** — ui — 八張圖表
+- [ ] **T9 (P2, CC ~30min)** — llm — 稽查重點三行
+- [ ] **D5 (P2, CC ~1h)** — charts — 圖表規格進 SD §4
+- [ ] **E10 (P2, CC ~15min)** — ops — data_asof、Demo-Token
+- [ ] **X4 (P2, CC ~20min)** — api — /api/v1、cap、envelope、409
+- [ ] **X5 (P2, CC ~20min)** — repro — raw-web/<date>、schema_version、--zip-dir
 
 ## Key Decisions
 
 | Decision | Rationale | Date |
 |----------|-----------|------|
-| 回頭客（再犯）當主軸 | 62% 被罰園是回頭客，貢獻 88% 裁罰 | 2026-09-12 |
-| 觀察點從每次裁罰後起算 + 每季 | Peter 決定；每季提供無裁罰史園的評分與 top-N 基準 | 2026-09-12 |
-| 連坐只加旗標不進分數 | 檢定：連坐園 12 個月被罰 11% vs 基準 7%，訊號弱 | 2026-09-12 |
-| 財報只當財務燈號附錄 | 被罰 9 園財務比率與未罰無顯著差異；公共化園裁罰 47–87% 為 §33 人的行為 | 2026-09-12 |
-| SQLite 單檔 | ≤ 10k 主檔列、單使用者（CLAUDE.md Right-size） | 2026-09-12 |
-| 模型不優於「按次數排序」時自動改規則 | 命題要辨識率；不能把更差的模型端出去 | 2026-09-12 |
-| Phase 2 先於畫面 | 回測數字決定 deck 主張 | 2026-09-12 |
+| 回頭客（再犯）當主軸，規則為主模型驗證 | 事件層回頭客 48% 貢獻 75%；文獻與兩模型：規則 ≈ 模型 | 2026-09-12 |
+| 觀察點事件 +1 天 + 季末；標籤 31–365 天 | Peter 決定裁罰後起算；同案 30 天內不算再犯 | 2026-09-12 |
+| 連坐只加旗標、分兩層 | 連坐 11% vs 基準 7%；政治風險 | 2026-09-12 |
+| 財報＝附錄三燈 | 被罰 9 園比率無顯著差異；補內控查核表接住鑑識會計 | 2026-09-12 |
+| SQLite 單檔、src_/app_ 分族 | ≤ 10k 主檔列、單使用者 | 2026-09-12 |
+| CP-SAT 人力排程、軟覆蓋硬容量 | Peter 指示；命題第三效益量化 | 2026-09-12 |
+| Agentic 唯讀問答 | Peter 指示；LLM=0 競爭風險 | 2026-09-12 |
+| rivendell 設計系統 + 畫面主線 5 | Peter 指示；四聲道一致 | 2026-09-12 |
+| P2 回測先於畫面 | 數字決定 deck 主張 | 2026-09-12 |
 
 ## Errors Encountered
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| 全國教保資訊網 punishSearch POST 回 500 | 1 | 改用新北公告頁 + kiang 備份；評鑑 POST 留 Phase 6 spike |
-| pandas groupby.apply 與 `name` 欄位衝突 | 1 | 改 `g["name"]` |
-| draw_sd_diagrams 文字重疊 ×6、FK 箭頭指錯表 | 2 | 重排實體圖為四角環；FK 走左側 lane |
+| 全國教保資訊網 punishSearch POST 500 | 1 | 改新北公告 + kiang 備份；評鑑 POST 留 P6 spike |
+| pandas groupby.apply 與 `name` 欄衝突 | 1 | `g["name"]` |
+| draw_sd_diagrams 文字重疊 ×6、FK 箭頭指錯 | 2 | 四角環排法；FK 左側 lane |
+| 列層裁罰數字灌水（1,474 列 vs 1,004 事件） | 1 | 事件層重算；deck 改數字 |
+| gstack designer 無 OpenAI 影像金鑰 | 1 | 視覺變體跳過，文字規格 + 現有截圖 |
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR (via /autoplan) | 16 proposals, 13 accepted, 2 deferred, 1 user challenge → accepted |
+| Codex Review | `/codex review` | Independent 2nd opinion | 4 (voices) | issues folded | CEO 10 / Design 6 HR / Eng 11 / DX 9 |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN via /autoplan) | 22 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR (FULL via /autoplan) | score: 3/10 → 8/10, 24 decisions |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 1 | CLEAR (via /autoplan) | score: 3/10 → 7/10, TTHW: 120min → 5min |
+
+- **CODEX:** 四階段 Codex 聲道共 36 條，全部裁定並折入計畫；無 Codex 獨立反對意見。
+- **CROSS-MODEL:** 四階段 6/6 共識 × 4，0 分歧；六個跨階段主題全部進架構定調。
+- **VERDICT:** CEO + DESIGN + ENG + DX CLEARED — ready to implement.
+
+NO UNRESOLVED DECISIONS
