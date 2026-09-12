@@ -567,7 +567,7 @@ def data_quality():
 @app.get("/api/v1/settings")
 def settings_get():
     con = ro(); s = settings(con)
-    return {"settings": s, "agent_enabled": agent.enabled, "active_model": one(con, "SELECT model_id, algo FROM v_models WHERE status='active'")}
+    return {"settings": s, "agent_enabled": agent.enabled, "agent": agent.status(), "active_model": one(con, "SELECT model_id, algo FROM v_models WHERE status='active'")}
 
 
 ALLOWED = {"n_inspectors": (int, 0, 50), "visits_per_inspector_week": (int, 0, 100), "quarter_weeks": (int, 1, 26), "high_threshold": (float, 0, 1), "mid_threshold": (float, 0, 1),
@@ -647,21 +647,22 @@ class AskReq(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     page: str = ""
     session_id: str = "demo"
+    provider: str | None = None
 
 
 @app.post("/api/v1/ask")
 def ask(body: AskReq):
     if not agent.enabled:
-        raise ApiError(409, "AGENT_DISABLED", "未設定 ANTHROPIC_API_KEY，問答停用", "在 .env 設定金鑰後重啟", state="agent_disabled")
+        raise ApiError(409, "AGENT_DISABLED", "未設定任何問答金鑰（ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY）", "在 .env 設定後重啟", state="agent_disabled")
     try:
-        return agent.ask(body.question, body.page, body.session_id)
+        return agent.ask(body.question, body.page, body.session_id, provider=body.provider)
     except Exception as e:  # LLM outage → degrade, never 500
         raise ApiError(503, "AGENT_UNAVAILABLE", "問答服務暫時無法使用", str(e)[:200], retryable=True)
 
 
 @app.get("/api/v1/health")
 def health():
-    return {"ok": True, "db": DB_PATH.exists(), "agent": agent.enabled}
+    return {"ok": True, "db": DB_PATH.exists(), "agent": agent.enabled, "agent_status": agent.status()}
 
 
 WEB = ROOT / "web"
