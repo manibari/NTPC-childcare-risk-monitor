@@ -41,3 +41,6 @@
 ## 2026-09-12 · correction · 簡報跳過了 CLAUDE.md 的 deck 流程
 - Peter：「你簡報的寫法是不是沒有照 skills 的一些規矩」。我在「寫一個簡報」時直接生成 13 張，沒問 deck 類型、沒跑 storyline 紅隊（硬 gate）、沒 /slide-workflow、沒 /de-slopify、沒 /gstack-design-review。
 - 規則：「寫簡報／做 deck」永遠先問類型與起點；storyline 沒 signed-off 就不能生成；生成出來的東西只能叫素材。
+
+## 2026-09-12 · correction · 黑客松提案的 Layer 3 公部門檢查
+- slide-office-hours 的公部門三件事（法規／預算科目／首長交代對象）在黑客松提案不全適用：Peter 裁定「預算科目、首長交代對象不重要」。規則：競賽提案只查法規對位；預算與交代對象標「不適用＋理由」即可過，不留白。
