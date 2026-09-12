@@ -1,7 +1,8 @@
 # AWS ECR → EC2 部署
 
 GitHub Actions 在 PR 執行 pytest、Docker build、Compose 啟動及 HTTP smoke test。
-main push（或在 main 手動執行 workflow）通過測試後，以 OIDC assume
+PR 和 main push 只執行 CI，不會部署。只有在 GitHub Actions → Test and deploy to AWS
+→ Run workflow 選擇 main 手動觸發，並通過測試後，才以 OIDC assume
 `arn:aws:iam::861560493301:role/github-actions-ecr`，推送 commit SHA 標籤至 ECR，
 透過 SSH 在 `44.249.44.27` 執行 Docker Compose。
 目前 build 使用 linux/amd64；EC2 必須是 x86_64，若為 Graviton 需調整 build 平台。
