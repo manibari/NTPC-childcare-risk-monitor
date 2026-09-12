@@ -1,7 +1,7 @@
 """P4 FastAPI — /api/v1/*. Reads only v_* views; writes only to app_* tables. Serves web/ as the UI."""
 from __future__ import annotations
 
-try:  # .env in the repo root: ANTHROPIC_API_KEY / GOOGLE_MAPS_API_KEY / WATCHDOG_DB
+try:  # Repository .env; existing process environment takes precedence.
     from dotenv import load_dotenv
     import pathlib as _pl
     load_dotenv(_pl.Path(__file__).resolve().parent.parent / ".env")
@@ -652,11 +652,11 @@ class AskReq(BaseModel):
 @app.post("/api/v1/ask")
 def ask(body: AskReq):
     if not agent.enabled:
-        raise ApiError(409, "AGENT_DISABLED", "未設定 ANTHROPIC_API_KEY，問答停用", "在 .env 設定金鑰後重啟", state="agent_disabled")
+        raise ApiError(409, "AGENT_DISABLED", agent.config_error or "LLM 設定不完整，問答停用", "在 .env 設定 provider、model、base URL 與金鑰後重啟", state="agent_disabled")
     try:
         return agent.ask(body.question, body.page, body.session_id)
-    except Exception as e:  # LLM outage → degrade, never 500
-        raise ApiError(503, "AGENT_UNAVAILABLE", "問答服務暫時無法使用", str(e)[:200], retryable=True)
+    except Exception:  # LLM outage → degrade, never 500
+        raise ApiError(503, "AGENT_UNAVAILABLE", "問答服務暫時無法使用", "請檢查 LLM 設定、模型存取權與服務狀態後重試", retryable=True)
 
 
 @app.get("/api/v1/health")

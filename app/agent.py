@@ -2,11 +2,11 @@
 
 Tools: sql_readonly (ro URI + authorizer that only allows v_* + AST-ish allowlist + LIMIT 200 + 5 s progress
 abort), explain_score, get_schedule, get_finance. No write tools exist. Every turn is logged to
-app_agent_turns. Without ANTHROPIC_API_KEY the service reports disabled and the API returns 409.
+app_agent_turns. Without valid LLM configuration the service reports disabled and the API returns 409.
 """
 from __future__ import annotations
 
-try:  # .env in the repo root: ANTHROPIC_API_KEY / GOOGLE_MAPS_API_KEY / WATCHDOG_DB
+try:  # Repository .env; existing process environment takes precedence.
     from dotenv import load_dotenv
     import pathlib as _pl
     load_dotenv(_pl.Path(__file__).resolve().parent.parent / ".env")
@@ -14,7 +14,6 @@ except ImportError:
     pass
 
 import json
-import os
 import pathlib
 import re
 import sqlite3
@@ -22,7 +21,7 @@ import time
 from datetime import date
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-MODEL = os.environ.get("WATCHDOG_AGENT_MODEL", "claude-sonnet-5")
+from app.llm import LLMConfig, create_client
 MAX_ROWS = 200
 FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|vacuum|reindex|begin|commit|rollback)\b", re.I)
 
@@ -40,6 +39,8 @@ TOOLS = [
     {"name": "get_schedule", "description": "目前排程摘要（產能、覆蓋率、某週或某園的訪視）。", "input_schema": {"type": "object", "properties": {"week_no": {"type": "integer"}, "preschool_id": {"type": "string"}}}},
     {"name": "get_finance", "description": "某非營利園的財務比率（最近年度）。", "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
 ]
+TOOLS = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
+          "parameters": t["input_schema"]}} for t in TOOLS]
 
 
 BANNED_COLUMNS = {"operator", "actor", "actor_name", "address", "tel"}
@@ -60,13 +61,19 @@ def _authorizer(action, arg1, arg2, dbname, source):
 
 
 class AgentService:
-    def __init__(self, db_path: pathlib.Path):
+    def __init__(self, db_path: pathlib.Path, *, config: LLMConfig | None = None, client=None):
         self.db_path = pathlib.Path(db_path)
-        self.api_key = os.environ.get("ANTHROPIC_API_KEY")
+        self.config_error = ""
+        try:
+            self.config = config or LLMConfig.from_env()
+        except ValueError as exc:
+            self.config = None
+            self.config_error = str(exc)
+        self.client = client
 
     @property
     def enabled(self) -> bool:
-        return bool(self.api_key)
+        return self.config is not None
 
     # ------------------------------------------------------------------ tools
     def _ro(self) -> sqlite3.Connection:
@@ -132,25 +139,38 @@ class AgentService:
     # ------------------------------------------------------------------ chat
     def ask(self, question: str, page: str = "", session_id: str = "demo", max_turns: int = 6) -> dict:
         if not self.enabled:
-            return {"error": "AGENT_DISABLED", "message": "未設定 ANTHROPIC_API_KEY，問答停用"}
-        import anthropic
-        client = anthropic.Anthropic(api_key=self.api_key)
-        messages = [{"role": "user", "content": question}]
+            return {"error": "AGENT_DISABLED", "message": self.config_error or "LLM 設定不完整，問答停用"}
+        # Provider differences belong in llm.py, never in the tool loop.
+        client = self.client or create_client(self.config)
+        messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": question}]
         calls, t0 = [], time.time()
         answer = ""
-        for _ in range(max_turns):
-            resp = client.messages.create(model=MODEL, max_tokens=1200, system=SYSTEM, tools=TOOLS, messages=messages)
-            if resp.stop_reason != "tool_use":
-                answer = "".join(b.text for b in resp.content if b.type == "text")
-                break
-            messages.append({"role": "assistant", "content": resp.content})
-            results = []
-            for b in resp.content:
-                if b.type == "tool_use":
-                    out = self.run_tool(b.name, dict(b.input))
-                    calls.append({"tool": b.name, "input": b.input, "n": out.get("n"), "error": out.get("error")})
-                    results.append({"type": "tool_result", "tool_use_id": b.id, "content": json.dumps(out, ensure_ascii=False, default=str)[:12000]})
-            messages.append({"role": "user", "content": results})
+        try:
+            for _ in range(max_turns):
+                resp = client.chat.completions.create(
+                    model=self.config.model, max_completion_tokens=1200, tools=TOOLS, messages=messages)
+                message = resp.choices[0].message
+                if not message.tool_calls:
+                    answer = message.content or ""
+                    break
+                messages.append({"role": "assistant", "content": message.content,
+                                 "tool_calls": [t.model_dump(include={"id", "type", "function"}) for t in message.tool_calls]})
+                for tool in message.tool_calls:
+                    try:
+                        args = json.loads(tool.function.arguments)
+                        if not isinstance(args, dict):
+                            raise ValueError("tool arguments must be an object")
+                        out = self.run_tool(tool.function.name, args)
+                    except (ValueError, TypeError):
+                        args, out = {}, {"error": "工具參數格式錯誤，請依 schema 修正"}
+                    calls.append({"tool": tool.function.name, "input": args, "n": out.get("n"), "error": out.get("error")})
+                    messages.append({"role": "tool", "tool_call_id": tool.id,
+                                     "content": json.dumps(out, ensure_ascii=False, default=str)[:12000]})
+            if not answer:
+                answer = "本次未取得完整回答，請縮小問題範圍後再試。"
+        finally:
+            if self.client is None:
+                client.close()
         latency = int((time.time() - t0) * 1000)
         con = sqlite3.connect(self.db_path)
         con.execute("INSERT INTO app_agent_turns(session_id, page, question, answer, tool_calls, latency_ms, created_at) VALUES (?,?,?,?,?,?,?)",

@@ -7,8 +7,17 @@ PR 和 main push 只執行 CI，不會部署。只有在 GitHub Actions → Test
 透過 SSH 在 `44.249.44.27` 執行 Docker Compose。
 目前 build 使用 linux/amd64；EC2 必須是 x86_64，若為 Graviton 需調整 build 平台。
 
-區域已設定為 `us-west-2`，ECR repository 為 `hackthron_0912`，SSH 使用者為 `ubuntu`
-（將提供的 `ubnutu` 視為拼字誤植）。如需調整，修改 workflow 的 `env`。
+部署參數讀取 GitHub repository Variables，未設定時使用以下預設：
+
+| Variable | 預設值 |
+|---|---|
+| `ECR_REPOSITORY` | `hacktrhon_0912` |
+| `EC2_HOST` | `44.249.44.27` |
+| `EC2_USER` | `ubuntu` |
+| `AWS_ROLE_ARN` | `arn:aws:iam::861560493301:role/github-actions-ecr` |
+
+AWS region 固定為 `us-west-2`，不由 repository Variable 覆寫。
+AWS account 仍固定為 `861560493301`，role 與 ECR 必須使用此 account。
 
 ## GitHub Actions Secrets
 
@@ -18,6 +27,10 @@ PR 和 main push 只執行 CI，不會部署。只有在 GitHub Actions → Test
 |---|---|
 | `EC2_SSH_KEY` | 可登入該使用者的完整、無 passphrase 私鑰，含 BEGIN/END |
 | `EC2_KNOWN_HOSTS` | `44.249.44.27 ssh-ed25519 AAAA...` 格式的主機公鑰記錄 |
+| `OPENAI_API_KEY` | Bedrock API key，優先使用 |
+| `ANTHROPIC_API_KEY` | 相容舊設定：當 OPENAI_API_KEY 未設時，讀取這裡的 Bedrock key |
+| `GOOGLE_MAPS_API_KEY` | Google Maps / Places API key |
+| `X_DEMO_TOKEN` | 可選的應用 token |
 
 不需要 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY。SSH port 預設 22。
 
@@ -50,17 +63,24 @@ EC2 需要能連出 ECR、S3（image layers）和 Docker Hub（Nginx image）。
 Security Group / 主機防火牆需允許 GitHub runner 連入 TCP 22，允許你的測試 IP 連入 TCP 12020。
 GitHub hosted runner 的出口 IP 會變動；若 SSH 來源有限制，需使用固定出口 runner 或更新允許範圍。
 
-部署路徑是 SSH 使用者的 `~/watchdog`。可選的應用金鑰放在 EC2 的 `~/watchdog/.env`：
+部署路徑是 SSH 使用者的 `~/watchdog`。將應用金鑰分別存入上述 repository Secrets；
+workflow 每次部署會自動產生並透過 SSH 覆蓋遠端 `~/watchdog/.env`（權限 `600`），內容包含：
 
 ```dotenv
-ANTHROPIC_API_KEY=
+LLM_PROVIDER=bedrock_openai
+LLM_MODEL=openai.gpt-5.6-luna
+AWS_DEFAULT_REGION=us-west-2
+OPENAI_BASE_URL=https://bedrock-mantle.us-west-2.api.aws/openai/v1
+OPENAI_API_KEY=
 GOOGLE_MAPS_API_KEY=
 X_DEMO_TOKEN=
 ```
 
-```bash
-chmod 600 ~/watchdog/.env
-```
+不需要手動建立遠端 `.env`。更新 GitHub Secrets 後重新執行部署即可套用。
+LLM key 必填：`OPENAI_API_KEY` 和舊 `ANTHROPIC_API_KEY` 都沒設定時部署停止。其他未設定的 Secret 會寫成空值，覆蓋遠端舊值。
+CD 固定指定上述 provider、model、base URL、region；API key 優先使用 `OPENAI_API_KEY` Secret，舊 Secret 名稱可繼續放 Bedrock key。
+正式環境不會呼叫 Anthropic API；本機可使用 Anthropic，兩條路徑共用 OpenAI-style client。
+部署後請用問答抽屜測試一般回答及資料工具查詢，確認 `openai.gpt-5.6-luna` 模型可用。
 
 不設定 API key 也能使用基本畫面。Compose 的 APP_IMAGE 由 workflow 注入。
 
@@ -92,7 +112,7 @@ docker compose logs --tail=100
 
 ```bash
 cd ~/watchdog
-bash deploy/deploy.sh us-west-2 861560493301.dkr.ecr.us-west-2.amazonaws.com/hackthron_0912:REPLACE_WITH_40_CHARACTER_COMMIT_SHA
+bash deploy/deploy.sh us-west-2 861560493301.dkr.ecr.us-west-2.amazonaws.com/hacktrhon_0912:REPLACE_WITH_40_CHARACTER_COMMIT_SHA
 ```
 
 請替換區域、repository 和 SHA。回滾 image 不會還原 DB，資料備份需另外安排。

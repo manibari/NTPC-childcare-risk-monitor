@@ -48,9 +48,9 @@ jobs:
       id-token: write
     env:
       AWS_REGION: us-west-2
-      ECR_REPOSITORY: hackthron_0912
-      EC2_HOST: 44.249.44.27
-      EC2_USER: ubuntu
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'hacktrhon_0912' }}
+      EC2_HOST: ${{ vars.EC2_HOST || '44.249.44.27' }}
+      EC2_USER: ${{ vars.EC2_USER || 'ubuntu' }}
     steps:
       - uses: actions/checkout@v4
       - name: Debug OIDC claims (temporary)
@@ -85,7 +85,7 @@ jobs:
           PY
       - uses: aws-actions/configure-aws-credentials@v6.2.3
         with:
-          role-to-assume: arn:aws:iam::861560493301:role/github-actions-ecr
+          role-to-assume: ${{ vars.AWS_ROLE_ARN || 'arn:aws:iam::861560493301:role/github-actions-ecr' }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Build and push image
         run: |
@@ -106,13 +106,38 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
       - name: Deploy Compose over SSH
+        env:
+          LLM_PROVIDER: bedrock_openai
+          LLM_MODEL: openai.gpt-5.6-luna
+          AWS_DEFAULT_REGION: us-west-2
+          OPENAI_BASE_URL: https://bedrock-mantle.us-west-2.api.aws/openai/v1
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          X_DEMO_TOKEN: ${{ secrets.X_DEMO_TOKEN }}
         run: |
           set -euo pipefail
           [[ "$EC2_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           [[ "$AWS_REGION" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]
           [[ "$ECR_REPOSITORY" =~ ^[a-z0-9][a-z0-9/_-]*$ ]]
+          [[ "$EC2_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          if [[ -z "$OPENAI_API_KEY" ]]; then
+            echo 'Set OPENAI_API_KEY (or legacy ANTHROPIC_API_KEY) repository secret to a Bedrock API key.' >&2
+            exit 1
+          fi
           target="$EC2_USER@$EC2_HOST"
           ssh -o BatchMode=yes -o ConnectTimeout=15 "$target" 'mkdir -p ~/watchdog/deploy'
+          umask 077
+          env_file=$(mktemp)
+          trap 'rm -f "$env_file"' EXIT
+          python3 - <<'PY' > "$env_file"
+          import os
+
+          for key in ("LLM_PROVIDER", "LLM_MODEL", "AWS_DEFAULT_REGION", "OPENAI_BASE_URL",
+                      "OPENAI_API_KEY", "GOOGLE_MAPS_API_KEY", "X_DEMO_TOKEN"):
+              value = "'" + os.environ.get(key, "").replace("'", "\\'") + "'"
+              print(f"{key}={value}")
+          PY
+          ssh -o BatchMode=yes "$target" 'set -eu; umask 077; tmp=$(mktemp ~/watchdog/.env.XXXXXX); trap "rm -f \"$tmp\"" EXIT; cat > "$tmp"; mv -f "$tmp" ~/watchdog/.env' < "$env_file"
           scp compose.yaml "$target:watchdog/compose.yaml"
           scp deploy/nginx.conf deploy/deploy.sh "$target:watchdog/deploy/"
           ssh -o BatchMode=yes "$target" "bash ~/watchdog/deploy/deploy.sh '$AWS_REGION' '$APP_IMAGE'"
