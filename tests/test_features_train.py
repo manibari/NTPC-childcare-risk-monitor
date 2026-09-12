@@ -38,8 +38,8 @@ def test_no_event_after_asof_leaks(tmp_path, synthetic_data):
     obs = observation_points(ev, date(2025, 12, 31))
     df = build_features(ev, obs, date(2025, 12, 31))
     for _, r in df.iterrows():
-        past = ev[(ev.preschool_id == r.preschool_id) & (ev.date <= r.asof)]
-        assert r.n_events_total == len(past)              # feature equals what was knowable at asof
+        past = ev[(ev["preschool_id"] == r["preschool_id"]) & (ev["date"] <= r["asof"])]
+        assert r["n_events_total"] == len(past)              # feature equals what was knowable at asof
 
 
 def test_approve_single_active_and_gate(tmp_path, synthetic_data):
