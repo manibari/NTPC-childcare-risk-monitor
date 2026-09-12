@@ -1,6 +1,13 @@
 """P4 FastAPI — /api/v1/*. Reads only v_* views; writes only to app_* tables. Serves web/ as the UI."""
 from __future__ import annotations
 
+try:  # .env in the repo root: ANTHROPIC_API_KEY / GOOGLE_MAPS_API_KEY / WATCHDOG_DB
+    from dotenv import load_dotenv
+    import pathlib as _pl
+    load_dotenv(_pl.Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+
 import csv
 import io
 import json

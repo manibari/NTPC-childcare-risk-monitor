@@ -6,6 +6,13 @@ app_agent_turns. Without ANTHROPIC_API_KEY the service reports disabled and the 
 """
 from __future__ import annotations
 
+try:  # .env in the repo root: ANTHROPIC_API_KEY / GOOGLE_MAPS_API_KEY / WATCHDOG_DB
+    from dotenv import load_dotenv
+    import pathlib as _pl
+    load_dotenv(_pl.Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+
 import json
 import os
 import pathlib

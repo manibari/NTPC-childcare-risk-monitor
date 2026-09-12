@@ -2,6 +2,13 @@
 Without a key the function returns None and the UI says so; nothing is scraped from Maps pages."""
 from __future__ import annotations
 
+try:  # .env in the repo root: ANTHROPIC_API_KEY / GOOGLE_MAPS_API_KEY / WATCHDOG_DB
+    from dotenv import load_dotenv
+    import pathlib as _pl
+    load_dotenv(_pl.Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+
 import json
 import os
 import urllib.parse

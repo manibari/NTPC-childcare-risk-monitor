@@ -1,6 +1,13 @@
 """Fetch news (and Maps reviews when GOOGLE_MAPS_API_KEY is set) for the top-N ranked schools, politely."""
 from __future__ import annotations
 
+try:  # .env in the repo root: ANTHROPIC_API_KEY / GOOGLE_MAPS_API_KEY / WATCHDOG_DB
+    from dotenv import load_dotenv
+    import pathlib as _pl
+    load_dotenv(_pl.Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+
 import argparse
 import pathlib
 import sys
