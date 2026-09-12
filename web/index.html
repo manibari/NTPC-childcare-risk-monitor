@@ -10,7 +10,7 @@
 :root{--bg:#fafafa;--surface:#fff;--surface-2:#f3f4f6;--border:#e5e7eb;--border-strong:#d1d5db;--text:#0a0a0a;--text-muted:#6b7280;--text-subtle:#9ca3af;--accent:#2d4a3e;--accent-soft:#5b7a6a;--accent-bg:#e8efea;--ok:#10b981;--warn:#f59e0b;--err:#ef4444;--g1:#d1ddd5;--g2:#8aa399;--g3:#2d4a3e}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 "Geist","PingFang TC","Noto Sans TC",sans-serif}
 .mono{font-family:"Geist Mono","PingFang TC",monospace;font-feature-settings:'tnum' 1}
-.app{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
 .side{background:var(--surface);border-right:1px solid var(--border);padding:20px 12px;position:sticky;top:0;height:100vh}
 .brand{display:flex;align-items:center;gap:8px;padding:4px 8px 16px;border-bottom:1px solid var(--border);margin-bottom:12px}
 .brand svg{width:18px;height:18px;color:var(--accent)}.brand b{font-weight:600;letter-spacing:-.02em;color:var(--accent)}
@@ -20,7 +20,7 @@
 .nav a svg{width:17px;height:17px}.nav .grp{font-family:"Geist Mono",monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-subtle);padding:14px 10px 6px;border-top:1px solid var(--border);margin-top:8px}
 .nav .grp:first-child{border:0;margin:0;padding-top:0}
 .side .foot{position:absolute;bottom:16px;left:12px;right:12px;font-size:13px;color:var(--text-subtle)}
-main{padding:24px 32px 48px;max-width:1360px}
+main{padding:24px 32px 48px;max-width:1360px;min-width:0}
 .crumb{font-size:13px;color:var(--text-muted);margin-bottom:6px}.crumb span{color:var(--text-subtle);margin:0 6px}
 h2{font-size:32px;font-weight:600;letter-spacing:-.02em;margin:0 0 4px}.sub{color:var(--text-muted);margin:0 0 18px;font-size:15px}
 h3{font-size:20px;font-weight:500;letter-spacing:-.02em;margin:0}
@@ -94,7 +94,7 @@ svg.chart text{font-family:"Geist Mono",monospace;font-size:12px;fill:var(--text
   <div class="tools" style="justify-content:flex-end"><button class="btn" onclick="document.getElementById('modal').classList.remove('open')">取消</button><a class="btn pri" id="exgo" href="#" target="_blank">ICON_DL 下載</a></div>
  </div></div></div>
 
-<style>.clickable{cursor:pointer}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:#fff;padding:10px 16px;border-radius:6px;font-size:15px;z-index:1200;display:none}.skel{color:var(--text-muted);padding:24px}.errbox{border-left:3px solid var(--err);background:var(--surface);padding:12px 16px;margin-bottom:16px}.row>*{min-width:0}td.tt{max-width:240px;overflow:hidden;text-overflow:ellipsis}</style>
+<style>.clickable{cursor:pointer}.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:#fff;padding:10px 16px;border-radius:6px;font-size:15px;z-index:1200;display:none}.skel{color:var(--text-muted);padding:24px}.errbox{border-left:3px solid var(--err);background:var(--surface);padding:12px 16px;margin-bottom:16px}.row>*{min-width:0}.kpis>*{min-width:0}td.tt{max-width:240px;overflow:hidden;text-overflow:ellipsis}</style>
 <div class="toast" id="toast"></div>
 <script>
 const I = {
