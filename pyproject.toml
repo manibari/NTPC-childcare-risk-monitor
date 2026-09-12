@@ -1,0 +1,27 @@
+[project]
+name = "smart-watchdog"
+version = "0.1.0"
+description = "新北市 AI 黑客松・教育局命題 Smart Watchdog：教保機構稽查覆核與人力配置"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "scikit-learn>=1.5",
+    "ortools>=9.10",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "anthropic>=0.40",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+macos = ["pyobjc-framework-Vision", "pyobjc-framework-Quartz"]  # OCR only; not needed for bootstrap
+dev = ["pytest>=8", "playwright>=1.45", "httpx>=0.27"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools]
+packages = []
