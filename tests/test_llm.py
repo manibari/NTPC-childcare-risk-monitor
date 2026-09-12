@@ -41,10 +41,15 @@ def test_anthropic_requires_explicit_endpoint_and_own_key():
         config("anthropic", ANTHROPIC_API_KEY="")
 
 
-@pytest.mark.parametrize("provider", ["anthropic", "bedrock_openai"])
-def test_tool_round_trip(provider, tmp_path):
+@pytest.mark.parametrize("provider,model", [
+    ("anthropic", "test-model"),
+    ("bedrock_openai", "test-model"),
+    ("bedrock_openai", "openai.gpt-5.6-luna"),
+])
+def test_tool_round_trip(provider, model, tmp_path):
     from app.agent import AgentService
     from app.llm import create_client
+    cfg = config(provider, LLM_MODEL=model)
     db = tmp_path / "agent.sqlite"
     with sqlite3.connect(db) as con:
         con.execute('CREATE TABLE app_agent_turns(session_id, page, question, answer, tool_calls, latency_ms, created_at)')
@@ -54,9 +59,13 @@ def test_tool_round_trip(provider, tmp_path):
     def respond(request):
         body = json.loads(request.content)
         requests.append(body)
-        assert request.headers['authorization'] == 'Bearer ' + config(provider).api_key
-        assert str(request.url) == config(provider).base_url + '/chat/completions'
-        assert body['model'] == 'test-model'
+        assert request.headers['authorization'] == 'Bearer ' + cfg.api_key
+        assert str(request.url) == cfg.base_url + '/chat/completions'
+        assert body['model'] == model
+        if provider == 'bedrock_openai' and model == 'openai.gpt-5.6-luna':
+            assert body.get('reasoning_effort') == 'none'
+        else:
+            assert 'reasoning_effort' not in body
         assert body['max_completion_tokens'] == 1200
         assert 'max_tokens' not in body
         assert body['messages'][0]['role'] == 'system'
@@ -71,16 +80,16 @@ def test_tool_round_trip(provider, tmp_path):
             assert json.loads(tool['content'])['rows'] == [{'total': 42}]
             message, reason = {'role': 'assistant', 'content': '共 42，來源 v_example。'}, 'stop'
         return httpx.Response(200, json={'id': 'chat_test', 'object': 'chat.completion', 'created': 0,
-            'model': 'test-model', 'choices': [{'index': 0, 'message': message, 'finish_reason': reason}]})
+            'model': model, 'choices': [{'index': 0, 'message': message, 'finish_reason': reason}]})
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as http:
-        client = create_client(config(provider), http_client=http)
-        service = AgentService(db, config=config(provider), client=client)
+        client = create_client(cfg, http_client=http)
+        service = AgentService(db, config=cfg, client=client)
         result = service.ask('有多少？')
     assert len(requests) == 2
     assert result['answer'] == '共 42，來源 v_example。'
     assert result['provider'] == provider
-    assert result['model'] == 'test-model'
+    assert result['model'] == model
     assert result['tool_calls'][0]['n'] == 1
     with sqlite3.connect(db) as con:
         assert con.execute('SELECT answer FROM app_agent_turns').fetchone()[0] == result['answer']

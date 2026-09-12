@@ -21,7 +21,7 @@ import time
 from datetime import date
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-from app.llm import LLMConfig, PROVIDER_LABELS, create_client
+from app.llm import LLMConfig, PROVIDER_LABELS, chat_completion_options, create_client
 MAX_ROWS = 200
 FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|vacuum|reindex|begin|commit|rollback)\b", re.I)
 
@@ -155,7 +155,8 @@ class AgentService:
         try:
             for _ in range(max_turns):
                 resp = client.chat.completions.create(
-                    model=self.config.model, max_completion_tokens=1200, tools=TOOLS, messages=messages)
+                    model=self.config.model, max_completion_tokens=1200, tools=TOOLS, messages=messages,
+                    **chat_completion_options(self.config))
                 message = resp.choices[0].message
                 if not message.tool_calls:
                     answer = message.content or ""
