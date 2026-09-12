@@ -37,3 +37,7 @@
 - **demo 資料與模型檔要一起進 repo**：demo DB 內有 active 模型但 pkl 被 gitignore，fresh clone 直接在評分階段中止。規則：任何「DB 指向檔案」的東西，bootstrap 要能重建或一起 commit，且缺檔要降級不中止。
 - **核准與重新評分要同交易語意**：先切 active 再評分，評分失敗就留下壞狀態；改成 preflight 檔案存在 + 失敗自動撤回。
 - **訓練先寫 DB 再寫檔、UPSERT 覆寫 active 列**：都會產生「DB 說有、檔案沒有」；改成先原子寫檔再 commit，且同鍵 active 列不覆寫。
+
+## 2026-09-12 · correction · 簡報跳過了 CLAUDE.md 的 deck 流程
+- Peter：「你簡報的寫法是不是沒有照 skills 的一些規矩」。我在「寫一個簡報」時直接生成 13 張，沒問 deck 類型、沒跑 storyline 紅隊（硬 gate）、沒 /slide-workflow、沒 /de-slopify、沒 /gstack-design-review。
+- 規則：「寫簡報／做 deck」永遠先問類型與起點；storyline 沒 signed-off 就不能生成；生成出來的東西只能叫素材。

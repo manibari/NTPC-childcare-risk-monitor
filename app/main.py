@@ -216,6 +216,7 @@ def preschool(pid: str):
         def _m(k):
             xs = sorted(v for v in (fnum(json.loads(r["payload"]).get(k)) for r in med) if v is not None); return xs[len(xs) // 2] if xs else None
         finance["median"] = {k: _m(k) for k in FIN_KEYS[:2]}
+        finance["lamps"] = finance_lamps(con)
     visit = one(con, "SELECT week_no, inspector_no, pinned, reason FROM v_schedule_visits WHERE preschool_id=?", (pid,))
     season = bool(one(con, "SELECT 1 FROM v_season_list WHERE preschool_id=? AND status<>'removed'", (pid,)))
     gap = None
@@ -400,6 +401,15 @@ def season_remove(pid: str):
 
 
 # ----------------------------------------------------------------------------- finance
+def finance_lamps(con) -> dict:
+    latest = rows(con, "SELECT payload FROM v_ratios r WHERE r.fiscal_year=(SELECT MAX(fiscal_year) FROM v_ratios x WHERE x.preschool_id=r.preschool_id)")
+    vals = {k: sorted(v for v in (fnum(json.loads(r["payload"]).get(k)) for r in latest) if v is not None) for k in FIN_KEYS[:2]}
+    def pct(k, q):
+        xs = vals[k]; return xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))] if xs else None
+    return {"人事費率": {"yellow": pct("人事費率", .75), "red": pct("人事費率", .90), "direction": "high", "rule": "黃＝高於全體第 75 百分位，紅＝高於第 90 百分位"},
+            "每核定名額收入(千)": {"yellow": pct("每核定名額收入(千)", .25), "red": pct("每核定名額收入(千)", .10), "direction": "low", "rule": "黃＝低於全體第 25 百分位，紅＝低於第 10 百分位"}}
+
+
 @app.get("/api/v1/finance")
 def finance():
     con = ro()
@@ -417,8 +427,9 @@ def finance():
     trend_out = [{"fiscal_year": y, "人事費率": med([p.get("人事費率") for p in ps]), "每核定名額收入(千)": med([p.get("每核定名額收入(千)") for p in ps])} for y, ps in sorted(by_year.items())]
     pen = [i for i in items if i["n_events"]]; non = [i for i in items if not i["n_events"]]
     cmp = {k: {"penalized": med([i[k] for i in pen]), "clean": med([i[k] for i in non])} for k in FIN_KEYS[:2]}
-    return {"items": items, "n_schools": len(items), "n_school_years": len(trend), "trend": trend_out, "compare": cmp,
-            "lamps": {"人事費率": {"red": 0.70, "yellow": 0.65}, "每核定名額收入(千)": {"red": 100, "yellow": 120}}}
+    lamps = finance_lamps(con)
+    return {"items": items, "n_schools": len(items), "n_school_years": len(trend), "trend": trend_out, "compare": cmp, "lamps": lamps,
+            "definitions": {"人事費率": "人事費 ÷ 支出合計（決算書）", "每核定名額收入(千)": "收入合計 ÷ 核定招收人數（千元）", "餘絀率": "本期餘絀 ÷ 收入合計", "流動比": "流動資產 ÷ 流動負債", "現金月數": "現金 ÷（支出合計 ÷ 12）"}}
 
 
 # ----------------------------------------------------------------------------- backtest
