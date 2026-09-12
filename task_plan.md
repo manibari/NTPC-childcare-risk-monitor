@@ -23,7 +23,7 @@
 10. **設計系統＝rivendell `dashboard-next/DESIGN.md`（Peter）+ 三條衍生**：CJK fallback `PingFang TC, Noto Sans TC`；低風險 = `--text-muted`（不用綠）；等級 = 8px 色點 + 文字。立案別純文字；圖表內嵌 SVG 三型單綠；無藍紫、無陰影、Lucide。
 11. **畫面收斂（gate User Challenge，Peter 接受；2026-09-12 Peter 加「財務體檢」為主線 6）**：主線 6（總覽地圖／排名／詳情含關聯圖 hero／排程／本季名單／財務體檢：38 非營利園三燈總表 + 異常排序 + 五年趨勢，附錄定位不變）+ 維護區 3 次要（回測／資料品質／設定）+ 問答抽屜 + 匯出對話框。
 12. **DX 底線（DX 雙聲道）**：`make bootstrap` 從 clone 到真資料排名頁 ≤ 5 分鐘、不需 raw PDF、不需 OCR；`data/demo/watchdog-demo.sqlite` 入 repo；`update.py` 完整 CLI 契約，exit 0/1 部分/2 中止/64 用法；`PipelineError(problem, cause, fix)`；API `/api/v1`、409+state 取代 503。
-13. **財報＝附錄三燈（E4）**：人事費率、每核定名額收入、內控查核表 V/X（+補助依賴度）；不宣稱預測裁罰。
+13. **財報＝每園四面向燈號（E4 擴充，Peter 2026-09-12）**：收入／支出成本／資產負債／餘絀各自紅黃綠 + 總燈號 + 逐年趨勢（`finance.py` → `src_finance_flags`）；內控查核表 V/X 與補助依賴度為 T6 待補；不進分數、不宣稱預測裁罰。
 
 ## 兩刀總綱（scope 經 review 確認）
 
@@ -47,8 +47,8 @@
 
 - [x] **P4 API + 匯出**：FastAPI `/api/v1/*`（overview/rankings/preschools/linkers/backtest/schedule/season-list/export/data-quality/settings/feedback）；`v_*` 去識別 view；錯誤 envelope（request_id/retryable/hint）；409+state；`X-Demo-Token`；契約測試 + 姓名性質測試。
 - [x] **P4b 問答**：`app/agent.py` AgentService（架構定調 9）+ `POST /api/v1/ask`（串流）+ `app_agent_turns`；每頁 3 個建議問題；demo 3 題離線快取；T9 稽查重點三行（P2）。
-- [ ] **P5 Web**：Next.js + 專案 DESIGN.md；主線 6 + 維護區 3 + 抽屜 + 匯出；**總覽用地圖呈現（Peter 2026-09-12）：Leaflet 園所點圖（等級色點）+ 行政區彙總，離線退回長條；每園一個地址點（Peter 2026-09-12「園所要有對應的地址點」，`v_preschools.lng/lat` 全 1,216 園齊全、不帶地址文字）**；八張圖（覆蓋率曲線／提前天數／再犯累積／區×法條熱圖／36 月趨勢／各區派工／產能 vs 覆蓋／該園間隔 vs 全市）；10×5 互動狀態表；desktop 1440；a11y 規格；mockup 先換膚重排（D2/D3）當實作參考 → **已完成 `mockups/smart-watchdog-v2.html`（2026-09-12，rivendell 風格、9 畫面 + 抽屜 + 匯出、OSM 地圖 1,216 點、真資料去識別）**。
-- [ ] **P6 管線與 bootstrap**：`update.py` 完整契約 + `PipelineError` + 固定 log；`ingest.py`（kiang 兩 JSON、新北公告、評鑑 spike；`raw-web/<date>/`）；`Makefile bootstrap`；`data/demo/watchdog-demo.sqlite`；OCR 產物 release asset；README Quickstart；data_asof = max(event date)。
+- [x] **P5 Web**：Next.js + 專案 DESIGN.md；主線 6 + 維護區 3 + 抽屜 + 匯出；**總覽用地圖呈現（Peter 2026-09-12）：Leaflet 園所點圖（等級色點）+ 行政區彙總，離線退回長條；每園一個地址點（Peter 2026-09-12「園所要有對應的地址點」，`v_preschools.lng/lat` 全 1,216 園齊全、不帶地址文字）**；八張圖（覆蓋率曲線／提前天數／再犯累積／區×法條熱圖／36 月趨勢／各區派工／產能 vs 覆蓋／該園間隔 vs 全市）；10×5 互動狀態表；desktop 1440；a11y 規格；mockup 先換膚重排（D2/D3）當實作參考 → **已完成 `mockups/smart-watchdog-v2.html`（2026-09-12，rivendell 風格、9 畫面 + 抽屜 + 匯出、OSM 地圖 1,216 點、真資料去識別）**。
+- [x] **P6 管線與 bootstrap**：`update.py` 完整契約 + `PipelineError` + 固定 log；`ingest.py`（kiang 兩 JSON、新北公告、評鑑 spike；`raw-web/<date>/`）；`Makefile bootstrap`；`data/demo/watchdog-demo.sqlite`；OCR 產物 release asset；README Quickstart；data_asof = max(event date)。
 - [ ] **P7 驗收**：`/gstack-review`（每 Phase 收尾）；`/qa-dataflow`（HARD GATE，target vs actual）；`/gstack-qa` + `/gstack-design-review`；`/gstack-careful` 於刪表前。
 - [ ] **P8 deck**：storyline.md（Peter 主筆）→ `/slide-office-hours` signed-off → `/sales-deck-design` → `/de-slopify` → `/gstack-document-release`。首頁承認限制；主視覺＝關聯圖 + 覆蓋率曲線；數字用事件層 + ROI。
 
@@ -144,7 +144,8 @@ Lane A: P0→P1→P2→P3→P3b｜Lane B: P6（只依 P0）｜Lane C: D1→D2→
 | 回頭客（再犯）當主軸，規則為主模型驗證 | 事件層回頭客 48% 貢獻 75%；文獻與兩模型：規則 ≈ 模型 | 2026-09-12 |
 | 觀察點事件 +1 天 + 季末；標籤 31–365 天 | Peter 決定裁罰後起算；同案 30 天內不算再犯 | 2026-09-12 |
 | 連坐只加旗標、分兩層 | 連坐 11% vs 基準 7%；政治風險 | 2026-09-12 |
-| 財報＝附錄三燈 | 被罰 9 園比率無顯著差異；補內控查核表接住鑑識會計 | 2026-09-12 |
+| 財報＝每園四面向燈號（取代三燈） | Peter：至少要對每園標財務風險，含收入／成本／資債趨勢；群體比較（10 vs 28）無訊號，改逐園規則 | 2026-09-12 |
+| 財報接線走封面完整園名 | 7 園換法人有兩筆同名 id，短名前綴抓錯 | 2026-09-12 |
 | SQLite 單檔、src_/app_ 分族 | ≤ 10k 主檔列、單使用者 | 2026-09-12 |
 | CP-SAT 人力排程、軟覆蓋硬容量 | Peter 指示；命題第三效益量化 | 2026-09-12 |
 | Agentic 唯讀問答 | Peter 指示；LLM=0 競爭風險 | 2026-09-12 |

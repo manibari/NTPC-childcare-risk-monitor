@@ -1,45 +1,51 @@
-# NTPC-childcare-risk-monitor
+# NTPC-childcare-risk-monitor — 小小守護員 Smart Watchdog
 
-新北市政府 AI 黑客松競賽・教育局命題：
-**小小守護員 Smart Watchdog：AI × 鑑識會計，打造教保機構智慧風險預警管理系統**
+新北市政府 AI 黑客松・教育局命題「AI × 鑑識會計，教保機構智慧風險預警管理系統」的參賽作品。
 
-## 題目一句話
+**一句話**：在有限稽查人力下，給承辦一份「這季該去哪、為什麼、跑得完」的行程與證據包。
+主軸是**回頭客**（有裁罰園 48% 再犯、貢獻 75% 事件），排序用可解釋的規則（近 3 年事件 × 近期性 × 不當對待／安全違規），
+排程用 CP-SAT 在人力約束下最佳化；財報是附錄三燈，不宣稱能預測裁罰。
 
-用公開資料（基本資料 / 評鑑 / 收費明細 / 裁罰紀錄 / 決算與財報 / 社群輿情）
-建一個可量化、可預測的教保機構風險評分模型，讓稽查人力優先投放在高風險園所。
-「高風險」的參考基準 = 全國教保資訊網的裁罰紀錄。
+## Quickstart（clone → 真資料畫面 ≤ 5 分鐘，不需 raw PDF、不需 OCR、不需 API key）
 
-完整命題見 `docs/problem-statement.txt`（原 PDF 在 `docs/`）。
-
-## 主辦方提供的資料 (`raw/`, gitignored, 1.8 GB)
-
-| 類別 | 內容 | 數量 |
-|------|------|------|
-| 非營利園財報 | 各園「財務報表暨會計師查核報告」PDF，約 40 頁/園 | 110 學年 28 園、111 學年 32 園、112 學年 34 園、113 學年 38 園 |
-| 公校決算書 | 新北市地方教育發展基金附屬單位決算（非營業部分），每年度 5 冊，每冊約 750 頁 | 112 / 113 / 114 年度 |
-
-- 公校決算書為文字型 PDF（pdftotext 可抽）；**非營利園財報除封面外全是掃描圖**，需 OCR
-  （`scripts/ocr_vision.py`，macOS Vision，約 0.8 秒/頁）。
-- 公校決算書第一冊開頭有「總目錄」：分基金編號 → 學校名 → 冊別，可當索引。
-  第五冊有 21 所市立幼兒園獨立分基金；國小附設幼兒園不分列（彙總在「各國民小學」）。
-- 重新取得 raw：解壓 `~/Downloads/E_教育局-資料集.zip`，檔名為 Big5，需以 cp950 解碼
-  （見 `scripts/extract_raw.py`）。
-
-## 需自行蒐集的公開資料（命題文件點名）
-
-- 全國教保資訊網（基本資料、評鑑結果、收費明細、裁罰紀錄）
-- 新北市幼兒教育資源網
-
-## 探索結論（2026-09-11）
-
-新北 269 筆裁罰全在私立（157）與準公共（112）園，公立／非營利為 0；主辦方財報只涵蓋公立／非營利。
-財報特徵與裁罰標籤母體零重疊，是這題的核心結構問題。四條切法與取捨見 `docs/exploration.md`。
-
-## 目錄
-
+```bash
+git clone https://github.com/manibari/NTPC-childcare-risk-monitor && cd NTPC-childcare-risk-monitor
+make bootstrap        # pip install → 沒有本地資料就用 data/demo/watchdog-demo.sqlite → 評分 → 排程 → 開 http://localhost:8765/
 ```
-docs/     命題文件 + 抽出的純文字
-raw/      主辦方原始 PDF（不進 git）
-data/     清洗後的中間資料（不進 git）
-scripts/  抽取 / 清洗腳本
-```
+
+- 要抓最新公開資料：`make update FETCH=1`（kiang 鏡像的全國教保資訊網兩個 JSON → `raw-web/<日期>/` → `data/`）。
+- 要重訓模型：`make update TRAIN=1`（walk-forward 回測；模型只在勝過「按次數排序」0.02 邊際時才會被核准）。
+- 問答抽屜：在 `.env` 設 `ANTHROPIC_API_KEY`（見 `.env.example`）；沒設就停用，其餘功能不受影響。
+- 測試：`make test`（32 條，含姓名性質測試：任何 API 回應不得含負責人／行為人姓名）。
+
+## 畫面（`web/index.html`，rivendell 設計系統，FastAPI 靜態單頁）
+
+主線：總覽（1,216 園地址點地圖）／風險排名／園所詳情（關聯圖、事件時間軸寫具體違規）／稽查排程（週 × 稽查員）／本季名單（已裁罰＋連坐待確認）／財務體檢（38 非營利園三燈）。
+維護：回測／資料品質／設定。右下「問資料」抽屜只讀去識別 view。
+
+## 管線（`scripts/`）
+
+| 階段 | 檔案 | 產出 |
+|---|---|---|
+| ingest | `ingest.py` | `data/kiang_*.json`（不跟轉址、檔案驟縮即沿用舊快照） |
+| build | `db.py` | `src_*` 單一交易重建、`app_*` 永不 drop、`v_*` 去識別 view；園×日期事件去重 |
+| linker | `linker.py` | 負責人／委辦法人持久代碼、同名（>5 km）旗標、兩層名單 |
+| train | `features.py` `train.py` `approve.py` `roi.py` | 觀察點（事件+1 天、季末）、31–365 天標籤、walk-forward 365 天空窗、ROI 重播 |
+| score | `score.py` | 規則分 → 分桶經驗再犯率 → 等級；無紀錄園不出屬性分 |
+| schedule | `schedule.py` | CP-SAT：容量硬約束、名單必訪、釘選／排除、同負責人同週加分 |
+| all | `update.py` | 一條 CLI，exit 0／1 部分／2 中止／64 用法；每階段寫 `app_pipeline_runs` |
+
+## 數字（事件層，新北，資料日期 2026-09-11）
+
+1,216 園 · 裁罰 1,474 列 → 1,004 事件 · 487 園有紀錄 · 回頭客 234（48%）· 兩次裁罰間隔 63% 在一年內。
+回測（2021–2025）：規則 AUC 0.63、前 100 覆蓋 42%；GBDT 0.61／44%；按次數 0.61／43% → 主張規則。
+ROI 重播：同樣 312 次／季人力，規則排程命中次年被罰園 40–53%，輪流稽查 25–28%。
+
+## 個資
+
+園名為公開登記名稱；負責人／行為人姓名在架構層擋住（API 與問答只讀 `v_*` view，view 無姓名欄；demo DB 已清空姓名欄）。
+
+## 文件
+
+`task_plan.md`（實作計畫與決策）· `docs/requirements/`、`docs/flows/`、`docs/design/`（SD + 圖）· `docs/reviews/2026-09-12-autoplan.md`（四階段審查）· `docs/exploration.md`（探索與財報結論）· `mockups/smart-watchdog-v2.html`。
+主辦方 raw PDF（1.8 GB）與 OCR 流程見 `docs/exploration.md` 與 `scripts/ocr_*.py`。

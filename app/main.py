@@ -20,11 +20,20 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from db import DEFAULT_DB  # noqa: E402
 from errors import PipelineError  # noqa: E402
+sys.path.insert(0, str(ROOT / "app"))
 from agent import AgentService  # noqa: E402
+from law_labels import describe, label, short_label  # noqa: E402
 
 DB_PATH = pathlib.Path(os.environ.get("WATCHDOG_DB", DEFAULT_DB))
 CITY = "新北市"
 FIN_KEYS = ["人事費率", "每核定名額收入(千)", "餘絀率", "流動比", "負債比", "現金月數"]
+
+
+def fnum(v):
+    try:
+        return None if v in (None, "", "nan") else float(v)
+    except (TypeError, ValueError):
+        return None
 
 app = FastAPI(title="Smart Watchdog API", version="1.0")
 agent = AgentService(DB_PATH)
@@ -103,6 +112,9 @@ def overview():
     monthly = rows(con, "SELECT substr(e.date,1,7) m, COUNT(*) n FROM v_penalty_events e JOIN v_preschools p ON p.id=e.preschool_id WHERE p.city=? AND e.date>? GROUP BY m ORDER BY m", (CITY, d36))
     heat = rows(con, """SELECT p.town, substr(e.articles, 1, instr(e.articles||'第','條')) art, COUNT(*) n FROM v_penalty_events e JOIN v_preschools p ON p.id=e.preschool_id
                         WHERE p.city=? AND e.date>? GROUP BY p.town, art""", (CITY, d36))
+    for h in heat:
+        h["label"] = label(h["art"]) if h["art"] else "未載明"
+        h["short"] = short_label(h["art"])
     types = rows(con, "SELECT type, COUNT(*) n FROM v_preschools WHERE city=? GROUP BY type", (CITY,))
     model = one(con, "SELECT model_id, algo, auc, beats_baseline FROM v_models WHERE status='active'")
     return {"data_asof": asof, "stale": stale(con, s), "n_schools": sum(t["n"] for t in types), "types": types, "levels": lv, "watchlist": watch,
@@ -153,14 +165,18 @@ def preschool(pid: str):
     sc = one(con, "SELECT * FROM v_scores WHERE preschool_id=?", (pid,))
     if sc and sc.get("top_features"): sc["top_features"] = json.loads(sc["top_features"])
     pens = rows(con, "SELECT penalty_id, date, law, law_article, punishment, actor_role, is_child_safety, event_id FROM v_penalties WHERE preschool_id=? ORDER BY date DESC", (pid,))
+    for x in pens:
+        x["violation"] = describe(x["law_article"], x["law"])
     events = rows(con, "SELECT * FROM v_penalty_events WHERE preschool_id=? ORDER BY date DESC", (pid,))
+    for e in events:
+        e["violations"] = [{"violation": x["violation"], "punishment": x["punishment"], "is_child_safety": x["is_child_safety"]} for x in pens if x["event_id"] == e["event_id"]]
     links = rows(con, "SELECT * FROM v_preschool_linkers WHERE preschool_id=?", (pid,))
     watch = rows(con, "SELECT w.*, q.title source_title FROM v_watchlist w LEFT JOIN v_preschools q ON q.id=w.source_preschool_id WHERE w.preschool_id=?", (pid,))
     fin = one(con, "SELECT fiscal_year, payload FROM v_ratios WHERE preschool_id=? ORDER BY fiscal_year DESC LIMIT 1", (pid,))
     finance = None
     if fin:
-        pl = json.loads(fin["payload"]); finance = {"fiscal_year": fin["fiscal_year"], "ratios": {k: pl.get(k) for k in FIN_KEYS}}
-        finance["history"] = [{"fiscal_year": r["fiscal_year"], **{k: json.loads(r["payload"]).get(k) for k in FIN_KEYS[:2]}} for r in rows(con, "SELECT fiscal_year, payload FROM v_ratios WHERE preschool_id=? ORDER BY fiscal_year", (pid,))]
+        pl = json.loads(fin["payload"]); finance = {"fiscal_year": fin["fiscal_year"], "ratios": {k: fnum(pl.get(k)) for k in FIN_KEYS}}
+        finance["history"] = [{"fiscal_year": r["fiscal_year"], **{k: fnum(json.loads(r["payload"]).get(k)) for k in FIN_KEYS[:2]}} for r in rows(con, "SELECT fiscal_year, payload FROM v_ratios WHERE preschool_id=? ORDER BY fiscal_year", (pid,))]
     visit = one(con, "SELECT week_no, inspector_no, pinned, reason FROM v_schedule_visits WHERE preschool_id=?", (pid,))
     season = bool(one(con, "SELECT 1 FROM v_season_list WHERE preschool_id=? AND status<>'removed'", (pid,)))
     gap = None
@@ -248,8 +264,10 @@ def capacity_curve():
         chosen = list(must)[:cap]
         rest = [r["preschool_id"] for r in ranked if r["preschool_id"] not in must][: max(cap - len(chosen), 0)]
         got = set(chosen) | set(rest)
-        out.append({"inspectors": n, "capacity": cap, "must_cov": round(len(set(chosen)) / max(len(must), 1), 3), "hm_cov": round(len(got & set(hm)) / max(len(hm), 1), 3)})
-    return {"curve": out, "n_must": len(must), "n_high_mid": len(hm)}
+        allc = {r["preschool_id"] for r in ranked} | must
+        out.append({"inspectors": n, "capacity": cap, "must_cov": round(len(set(chosen)) / max(len(must), 1), 3), "hm_cov": round(len(got & set(hm)) / max(len(hm), 1), 3),
+                    "cand_cov": round(len(got & allc) / max(len(allc), 1), 3)})
+    return {"curve": out, "n_must": len(must), "n_high_mid": len(hm), "n_candidates": len({r["preschool_id"] for r in ranked} | must)}
 
 
 # ----------------------------------------------------------------------------- season list / watchlist
@@ -300,13 +318,13 @@ def finance():
     items = []
     for r in latest:
         pl = json.loads(r["payload"])
-        items.append({"preschool_id": r["preschool_id"], "title": r["title"], "fiscal_year": r["fiscal_year"], "n_events": r["n_events"], **{k: pl.get(k) for k in FIN_KEYS}, "internal_control": None})
+        items.append({"preschool_id": r["preschool_id"], "title": r["title"], "fiscal_year": r["fiscal_year"], "n_events": r["n_events"], **{k: fnum(pl.get(k)) for k in FIN_KEYS}, "internal_control": None})
     trend = rows(con, "SELECT fiscal_year, payload FROM v_ratios")
     by_year: dict[int, list] = {}
     for r in trend:
         by_year.setdefault(r["fiscal_year"], []).append(json.loads(r["payload"]))
     def med(xs):
-        xs = sorted(x for x in xs if x is not None); return xs[len(xs) // 2] if xs else None
+        xs = sorted(x for x in (fnum(v) for v in xs) if x is not None); return xs[len(xs) // 2] if xs else None
     trend_out = [{"fiscal_year": y, "人事費率": med([p.get("人事費率") for p in ps]), "每核定名額收入(千)": med([p.get("每核定名額收入(千)") for p in ps])} for y, ps in sorted(by_year.items())]
     pen = [i for i in items if i["n_events"]]; non = [i for i in items if not i["n_events"]]
     cmp = {k: {"penalized": med([i[k] for i in pen]), "clean": med([i[k] for i in non])} for k in FIN_KEYS[:2]}

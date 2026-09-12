@@ -55,6 +55,8 @@ status: reviewed（2026-09-12 /gstack-autoplan 全數裁定；補丁見 §2 末�
 | `~` | `preschools.monthly` | TEXT → INTEGER | 是 | NULL | — | build_db | features |
 | `+` | `penalties.penalty_id` | INTEGER PK AUTOINCREMENT | 否 | — | PK | build_db | observations, 詳情 API |
 | `+` | `penalties.is_safety` | INTEGER(0/1)，§30/§33/§43 | 否 | 0 | — | build_db | features, 詳情 |
+| `+` | `statements.title`, `ratios.preschool_id` | 封面完整園名；由 title 對回 `preschools.id`（7 園換法人有兩筆同名） | 否 | — | (preschool_id, fiscal_year) | StatementParser / DBBuilder | 詳情 API finance |
+| `+` | `finance_flags` | `preschool_id`, `code`, `fiscal_year`, `level`(紅/黃/綠/灰), `level_revenue/cost/balance/surplus`, `is_latest`, `direction`, `history`, `reasons` JSON, `dims` JSON, `metrics` JSON | level 否 | — | (preschool_id, fiscal_year) | DBBuilder（`finance.py` 規則，src_ 族整表重建） | 詳情 API finance、匯出 |
 | `+` | `linkers` | `linker_id` INTEGER PK, `kind`('owner'/'operator'), `key_name` TEXT, `code` TEXT('O-017'/'L-004'), `n_schools` INT | key_name 否 | — | UNIQUE(kind,key_name) | Linker | watchlist, 關聯圖 API, 匯出 |
 | `+` | `preschool_linkers` | `preschool_id`, `linker_id`, `same_name_flag` INT, `excluded_by_user` INT | 否 | 0 | (linker_id), (preschool_id) | Linker；`excluded_by_user` 由 API 寫 | watchlist, 關聯圖 |
 | `+` | `observations` | `obs_id` INTEGER PK, `preschool_id`, `asof_date`, `trigger`('penalty'/'quarter'), `penalty_id` (nullable, trigger=penalty 時), 特徵欄（見下）, `label_repeat_12m` INT nullable, `label_available` INT | label 可 NULL（asof+365 > 資料截至） | — | (preschool_id, asof_date), (asof_date) | FeatureBuilder | Trainer, Scorer |
@@ -252,7 +254,7 @@ D 匯出        --(CSV)-->             【承辦】排下季稽查行程
 
 **④ 旁掛（虛線唯讀）**
 
-- 財務燈號：讀 `ratios` + `linkers(operator)`，只在詳情頁顯示，**不產生任何新實體**、不進分數。
+- 財務燈號：DBBuilder 依 `finance.py` 規則從 `ratios` 算出 `finance_flags`（src_ 族、每次重建、四面向＋總燈號＋理由），詳情頁讀它 + `linkers(operator)` 做同法人比較；**不進分數、不進 watchlist**。
 - 資料品質頁：讀 `pipeline_runs`、各表 COUNT、OCR 恆等式，**不產生新實體**。
 - 回測儀表：讀 `models`、`backtests`，不產生新實體。
 
@@ -271,6 +273,7 @@ D 匯出        --(CSV)-->             【承辦】排下季稽查行程
 | Preschool | SQLite `preschools` | DBBuilder --(整表重建)--> | FeatureBuilder, Linker, API | 每次更新重建 |
 | Penalty | `penalties`（`penalty_id`） | DBBuilder --(整表重建)--> | FeatureBuilder（觀察點）, API | 每次更新重建 |
 | Statement / Ratio | `statements`, `ratios` | StatementParser --(解析+剔錯)--> DBBuilder | 詳情頁財務燈號（唯讀） | 每次更新重建 |
+| FinanceFlag | `finance_flags` | DBBuilder --(finance.py 規則、同儕中位數)--> | 詳情頁財務燈號、匯出 | 每次更新重建；不進分數 |
 | Evaluation | `evaluations` | Ingest --(抓取)--> DBBuilder | FeatureBuilder | 可缺 |
 | Linker / PreschoolLinker | `linkers`, `preschool_linkers` | Linker --(解析 owner/operator)--> | watchlist, 關聯圖 API, Exporter(code) | 重建，但 `excluded_by_user` 由 Linker 依 (kind,key_name,preschool_id) 保留 |
 | Observation | `observations` | FeatureBuilder --(切觀察點、算特徵、貼標籤)--> | Trainer, Scorer | 每次更新重建 |
@@ -304,7 +307,7 @@ SeasonListEntry ←(加入)─ 人 ←(看排名)─ Score
 | WatchlistEntry | Linker | 同名排除 | 該 linker 的列重算，其餘不動 |
 | Feedback | Observation（未來） | 承辦標「誤判」累積 | 不改現有標籤；另加 `label_source` 欄（未來） |
 
-**唯讀旁掛**：財務燈號讀 `ratios`；資料品質讀 `pipeline_runs`；回測儀表讀 `models/backtests` —— 三者**不產生新實體**。
+**唯讀旁掛**：財務燈號讀 `finance_flags`（DBBuilder 重建時從 `ratios` 導出，不進分數）；資料品質讀 `pipeline_runs`；回測儀表讀 `models/backtests` —— 後兩者**不產生新實體**。
 
 > **與 §2 對帳**：§2 Delta 的每張新表（linkers, preschool_linkers, observations, models, backtests, scores, watchlist, season_list, feedback, pipeline_runs, settings, evaluations）都在上表；上表的「網頁快照」「OCR 頁」「匯出檔」不是表，已標躺在檔案系統或不落地。
 

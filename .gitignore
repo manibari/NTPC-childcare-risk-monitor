@@ -3,5 +3,8 @@ __pycache__/
 .env
 .venv/
 # raw source PDFs (1.8 GB) — re-extract from ~/Downloads/E_教育局-*.zip
-data/
+data/*
+!data/demo/
+!data/demo/watchdog-demo.sqlite
 raw/
+raw-web/

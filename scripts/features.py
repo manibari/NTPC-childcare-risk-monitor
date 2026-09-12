@@ -128,7 +128,7 @@ def rule_score(df: pd.DataFrame) -> pd.Series:
 def rule_reason(row: pd.Series) -> str:
     parts = [f"近 3 年裁罰 {int(row['n_events_36m'])} 次", f"距上次 {int(row['days_since_last'])} 天"]
     if row["n_child_safety_36m"]:
-        parts.append(f"兒安條款 {int(row['n_child_safety_36m'])} 次")
+        parts.append(f"不當對待或安全相關 {int(row['n_child_safety_36m'])} 次")
     if row["has_stop_enroll"]:
         parts.append("曾停止招生")
     return "、".join(parts)

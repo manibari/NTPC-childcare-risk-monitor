@@ -147,7 +147,7 @@ def refresh_watchlist(con: sqlite3.Connection, asof: str | None = None, city: st
     try:
         con.execute("UPDATE app_watchlist SET is_current=0 WHERE is_current=1")
         for pid, n, last_date, last_event_id, n_cs in penalized:
-            reason = f"近{months}個月裁罰 {n} 次（最近 {last_date}）" + ("，含兒童安全條款" if n_cs else "")
+            reason = f"近{months}個月裁罰 {n} 次（最近 {last_date}）" + ("，含不當對待或安全相關" if n_cs else "")
             con.execute(
                 "INSERT INTO app_watchlist(preschool_id, asof_date, reason, source_preschool_id, source_event_id, linker_id, tier, is_current) "
                 "VALUES (?,?,?,?,?,?, 'penalized', 1)",

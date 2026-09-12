@@ -134,6 +134,12 @@ CREATE TABLE src_ratios(
   preschool_id TEXT, code TEXT, name TEXT, title TEXT, fiscal_year INTEGER, capacity INTEGER, payload TEXT);
 CREATE INDEX ix_ratio ON src_ratios(preschool_id, fiscal_year);
 CREATE TABLE src_evaluations(preschool_id TEXT PRIMARY KEY, result TEXT, fetched_at TEXT);
+CREATE TABLE src_finance_flags(
+  preschool_id TEXT, code TEXT, fiscal_year INTEGER, level TEXT NOT NULL,
+  level_revenue TEXT, level_cost TEXT, level_balance TEXT, level_surplus TEXT,
+  is_latest INTEGER NOT NULL DEFAULT 0, direction TEXT, history TEXT,
+  reasons TEXT NOT NULL, dims TEXT NOT NULL, metrics TEXT NOT NULL);
+CREATE INDEX ix_fin_school ON src_finance_flags(preschool_id, fiscal_year);
 """
 
 VIEWS_DDL = """
@@ -145,6 +151,9 @@ CREATE VIEW IF NOT EXISTS v_penalties AS
   FROM src_penalties;
 CREATE VIEW IF NOT EXISTS v_penalty_events AS SELECT * FROM src_penalty_events;
 CREATE VIEW IF NOT EXISTS v_ratios AS SELECT preschool_id, code, title, fiscal_year, capacity, payload FROM src_ratios;
+CREATE VIEW IF NOT EXISTS v_finance_flags AS
+  SELECT preschool_id, code, fiscal_year, level, level_revenue, level_cost, level_balance, level_surplus,
+         is_latest, direction, history, reasons, dims FROM src_finance_flags;
 CREATE VIEW IF NOT EXISTS v_linkers AS SELECT linker_id, kind, code, n_schools FROM app_linkers;
 CREATE VIEW IF NOT EXISTS v_preschool_linkers AS
   SELECT pl.preschool_id, pl.linker_id, l.kind, l.code, l.n_schools, pl.same_name_flag, pl.excluded_by_user
@@ -169,7 +178,7 @@ CREATE VIEW IF NOT EXISTS v_ntpc_penalty_summary AS
   WHERE p.city = '新北市' GROUP BY p.id;
 """
 
-SRC_TABLES = ["src_preschools", "src_penalties", "src_penalty_events", "src_statements", "src_ratios", "src_evaluations"]
+SRC_TABLES = ["src_preschools", "src_penalties", "src_penalty_events", "src_statements", "src_ratios", "src_evaluations", "src_finance_flags"]
 APP_TABLES_WITH_PRESCHOOL = ["app_preschool_linkers", "app_watchlist", "app_scores", "app_schedule_visits", "app_season_list"]
 
 
@@ -282,7 +291,7 @@ class DBBuilder:
                                         "來源快照可能殘缺或被截斷", "檢查 data/kiang_*.json；確定要覆蓋則加 --force-rebuild", stage="build")
         con.execute("BEGIN IMMEDIATE")
         try:
-            for v in ("v_preschools", "v_penalties", "v_penalty_events", "v_ratios", "v_linkers", "v_ntpc_penalty_summary"):
+            for v in ("v_preschools", "v_penalties", "v_penalty_events", "v_ratios", "v_finance_flags", "v_linkers", "v_ntpc_penalty_summary"):
                 con.execute(f"DROP VIEW IF EXISTS {v}")
             for t in SRC_TABLES:
                 con.execute(f"DROP TABLE IF EXISTS {t}")
@@ -311,6 +320,7 @@ class DBBuilder:
                 con.execute("INSERT INTO src_ratios VALUES (?,?,?,?,?,?,?)",
                             (pid, row.get("code"), row.get("name"), row.get("title"), _int(row.get("fiscal_year")),
                              _int(row.get("capacity")), json.dumps({k: v for k, v in row.items() if k not in ("preschool_id", "code", "name", "title", "fiscal_year", "capacity", "penalised", "n_penalty", "pre_penalty")}, ensure_ascii=False)))
+            self._insert_finance_flags(con, src["ratios"], resolve)
             _exec_ddl(con, VIEWS_DDL)
             orphans = self.orphan_check(con)
             data_asof = con.execute("SELECT MAX(date) FROM src_penalty_events").fetchone()[0] or ""
@@ -324,6 +334,30 @@ class DBBuilder:
         stats["finance_unlinked"] = {k: v for k, v in unlinked.items() if v}  # rows whose school could not be resolved
         stats["data_asof"] = data_asof
         return stats
+
+    @staticmethod
+    def _insert_finance_flags(con: sqlite3.Connection, ratios: list[dict], resolve) -> None:
+        """財務燈號 (scripts/finance.py): one row per school-year, four dimensions + overall; latest year carries the summary."""
+        import finance  # local import: keeps db.py importable without pandas-side deps
+        by_code: dict[str, list[dict]] = {}
+        for row in ratios:
+            by_code.setdefault(row["code"], []).append(row)
+        peer = finance.peer_baselines(ratios)
+        for code, rows in by_code.items():
+            pid = rows[0].get("preschool_id") or resolve(rows[0].get("title"), rows[0].get("name"))
+            flags = finance.flag_school(rows, peer)
+            summary = finance.summarize(flags)
+            for f in flags:
+                latest = f is flags[-1]
+                con.execute(
+                    "INSERT INTO src_finance_flags VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (pid, code, f.fiscal_year, f.level,
+                     f.dims.get("收入", {}).get("level"), f.dims.get("支出", {}).get("level"),
+                     f.dims.get("資債", {}).get("level"), f.dims.get("餘絀", {}).get("level"),
+                     int(latest), summary["direction"] if latest else None, summary["history"] if latest else None,
+                     json.dumps(f.reasons, ensure_ascii=False),
+                     json.dumps({d: v.get("level") for d, v in f.dims.items()}, ensure_ascii=False),
+                     json.dumps({k: v for k, v in f.metrics.items() if k not in ("bs_ok", "is_ok")}, ensure_ascii=False)))
 
     @staticmethod
     def orphan_check(con: sqlite3.Connection) -> dict:
