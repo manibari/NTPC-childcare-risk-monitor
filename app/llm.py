@@ -49,6 +49,14 @@ class LLMConfig:
         return cls(provider, model, base_url, key, region)
 
 
+def chat_completion_options(config: LLMConfig) -> dict[str, str]:
+    """Compatibility options for the shared tool-enabled Chat Completions loop."""
+    # Live Bedrock validation rejects function tools with Luna's default reasoning.
+    if config.provider == "bedrock_openai" and config.model == "openai.gpt-5.6-luna":
+        return {"reasoning_effort": "none"}
+    return {}
+
+
 def create_client(config: LLMConfig, **kwargs) -> OpenAI:
     """Both providers use the same SDK, request schema, timeout and retry policy."""
     return OpenAI(api_key=config.api_key, base_url=config.base_url, timeout=60.0, max_retries=2, **kwargs)
