@@ -48,7 +48,11 @@ def run(db: pathlib.Path, start: str = "ingest", fetch: bool = True, train: bool
                 from ingest import fetch as do_fetch
                 r = do_fetch(builder.data_dir); log(con, run_id, stage, t0, True, sum(v for k, v in r.items() if k != "raw_dir"), str(r))
             elif stage == "build":
-                con.close(); r = builder.build(); con = connect(db)
+                con.close()
+                try:
+                    r = builder.build()
+                finally:
+                    con = connect(db)
                 log(con, run_id, stage, t0, True, r["src_preschools"], f"events={r['src_penalty_events']} asof={r['data_asof']}")
             elif stage == "linker":
                 from linker import coverage_report, refresh_watchlist, sync_linkers

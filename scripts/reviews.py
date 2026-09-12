@@ -24,7 +24,10 @@ def fetch(title: str, town: str = "", timeout: int = 8) -> dict | None:
         res = json.load(r).get("results") or []
     if not res:
         return {"place_id": None, "rating": None, "n_ratings": 0, "reviews": []}
-    top = res[0]
+    key_name = title.replace("幼兒園", "")
+    top = next((x for x in res if key_name and key_name in (x.get("name") or "") and (not town or town in (x.get("formatted_address") or ""))), None)
+    if top is None:  # do not attach another business's stars to this school
+        return {"place_id": None, "rating": None, "n_ratings": 0, "reviews": []}
     with urllib.request.urlopen(DETAILS.format(pid=top["place_id"], k=key), timeout=timeout) as r:
         d = json.load(r).get("result") or {}
     reviews = [{"rating": x.get("rating"), "time": x.get("relative_time_description"), "text": (x.get("text") or "")[:300]} for x in d.get("reviews") or []]

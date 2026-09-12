@@ -42,7 +42,11 @@ def test_no_event_after_asof_leaks(tmp_path, synthetic_data):
         assert r["n_events_total"] == len(past)              # feature equals what was knowable at asof
 
 
-def test_approve_single_active_and_gate(tmp_path, synthetic_data):
+def test_approve_single_active_and_gate(tmp_path, synthetic_data, monkeypatch):
+    import approve as approve_mod
+    monkeypatch.setattr(approve_mod, "MODEL_DIR", tmp_path)
+    for i in (1, 2, 3):
+        (tmp_path / f"model_{i}.pkl").write_bytes(b"x")
     con = _con(tmp_path, synthetic_data)
     con.executemany(
         "INSERT INTO app_models(trained_at, algo, params, seed, feature_hash, data_asof, auc, beats_baseline, status) VALUES (?,?,?,?,?,?,?,?,?)",

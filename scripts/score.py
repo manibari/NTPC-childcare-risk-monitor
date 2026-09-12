@@ -21,7 +21,7 @@ import pandas as pd
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from db import DEFAULT_DB, ROOT, connect  # noqa: E402
 from errors import PipelineError  # noqa: E402
-from features import EVENT_FEATURES, feature_frame, rule_reason, rule_score  # noqa: E402
+from features import EVENT_FEATURES, feature_frame, feature_hash, rule_reason, rule_score  # noqa: E402
 
 MODEL_DIR = ROOT / "data" / "models"
 SMOOTH = 20  # Laplace-style shrinkage of bucket rates toward the global rate
@@ -44,7 +44,9 @@ def bucket_rates(resolved: pd.DataFrame) -> tuple[dict[str, float], float]:
 FEATURE_ZH = {"n_events_total": "歷年事件數", "n_events_12m": "近 12 月事件", "n_events_36m": "近 36 月事件", "days_since_last": "距上次裁罰天數",
               "years_since_first": "首次裁罰至今年數", "events_per_year": "每年事件率", "n_child_safety_total": "歷年不當對待／安全",
               "n_child_safety_36m": "近 36 月不當對待／安全", "has_stop_enroll": "曾停止招生", "has_person_actor": "曾有個人行為人",
-              "n_rows_total": "歷年裁罰列數", "n_articles_last": "最近一次條款數", "n_events_prev_12m": "前一年事件"}
+              "n_rows_total": "歷年裁罰列數", "n_articles_last": "最近一次條款數", "n_events_prev_12m": "前一年事件",
+              "is_private": "私立", "is_nonprofit": "非營利", "count_approved": "核定人數", "years_since_reg": "立案年數", "is_pre_public": "準公共",
+              "town_event_rate": "行政區 36 月事件率", "town_n_schools": "行政區園數"}
 
 
 def _contributions(model, X: pd.DataFrame) -> list[list]:
@@ -60,7 +62,7 @@ def _contributions(model, X: pd.DataFrame) -> list[list]:
         C = Z.values * imp
     out = []
     for row in C:
-        pairs = sorted(zip(EVENT_FEATURES, row), key=lambda kv: -abs(kv[1]))[:5]
+        pairs = sorted(zip(list(X.columns), row), key=lambda kv: -abs(kv[1]))[:5]
         out.append([[FEATURE_ZH.get(k, k), round(float(v), 3)] for k, v in pairs])
     return out
 
@@ -84,19 +86,37 @@ def score_all(con: sqlite3.Connection, asof: str | None = None, city: str = "新
     rates, base = bucket_rates(resolved)
     cur["prob_rule"] = bucket(cur).map(rates).fillna(base)
     method, model_id = "rule", None
+    warning = None
+    bundle = None
     if active and active[2]:
         pkl = MODEL_DIR / f"model_{active[0]}.pkl"
-        if not pkl.exists():
-            raise PipelineError("active 模型檔不存在", str(pkl), "重新訓練或撤銷核准", stage="score")
-        with open(pkl, "rb") as f:
-            bundle = pickle.load(f)
-        cur["prob"] = bundle["model"].predict_proba(cur[EVENT_FEATURES])[:, 1]
+        if pkl.exists():
+            with open(pkl, "rb") as f:
+                bundle = pickle.load(f)
+            fs = bundle.get("feature_set", "events")
+            if bundle.get("feature_hash") != feature_hash(fs):
+                warning = f"active 模型 #{active[0]} 的特徵版本不符（{bundle.get('feature_hash')} ≠ {feature_hash(fs)}），改用規則"
+                bundle = None
+        else:
+            warning = f"active 模型 #{active[0]} 的模型檔不存在（{pkl.name}），改用規則；請重新訓練或撤銷"
+    if bundle is not None:
+        feats = bundle.get("features", EVENT_FEATURES)
+        if fs != "events":
+            cur = feature_frame(con, asof, city, feature_set=fs); cur = cur[cur["asof"].map(str) == asof].copy()
+            cur["rule"] = rule_score(cur); cur["prob_rule"] = bucket(cur).map(rates).fillna(base)
+        cur["prob"] = bundle["model"].predict_proba(cur[feats])[:, 1]
         method, model_id = f"model:{active[1]}", active[0]
     else:
         cur["prob"] = cur["prob_rule"]
+    if warning:
+        print("[score] 警告：" + warning, file=sys.stderr)
+        con.execute("INSERT INTO app_pipeline_runs(run_id, stage, started_at, seconds, n_rows, n_failed, ok, message) VALUES ('score','score-warning',?,0,0,1,0,?)",
+                    (date.today().isoformat(), warning))
     cur = cur.sort_values(["prob", "rule"], ascending=[False, False]).reset_index(drop=True)
     cur["rank"] = np.arange(1, len(cur) + 1)
-    contrib = _contributions(bundle["model"], cur[EVENT_FEATURES]) if model_id is not None else None
+    contrib = _contributions(bundle["model"], cur[bundle.get("features", EVENT_FEATURES)]) if model_id is not None else None
+    if not (cur["prob"].max() > 0):
+        raise PipelineError("所有再犯機率為 0，不寫入評分批次", "已解析標籤沒有任何正例或模型輸出全零", "檢查標籤窗與模型檔", stage="score")
     cur["risk_01"] = cur["prob"] / cur["prob"].max()
     cur["level"] = _levels(cur["prob"], settings)
     # display score 0–100 = relative 12-month recidivism probability (monotonic with rank)
@@ -133,7 +153,7 @@ def score_all(con: sqlite3.Connection, asof: str | None = None, city: str = "新
         con.execute("ROLLBACK")
         raise
     levels = cur["level"].value_counts().to_dict()
-    return {"score_batch_id": bid, "asof": asof, "method": method, "scored": len(cur), "unscored": len(schools) - len(cur),
+    return {"score_batch_id": bid, "asof": asof, "method": method, "warning": warning, "scored": len(cur), "unscored": len(schools) - len(cur),
             "levels": levels, "base_rate": round(base, 3), "top_prob": round(float(cur["prob"].max()), 3)}
 
 

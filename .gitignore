@@ -6,5 +6,7 @@ __pycache__/
 data/*
 !data/demo/
 !data/demo/watchdog-demo.sqlite
+!data/models/
+!data/models/*.pkl
 raw/
 raw-web/

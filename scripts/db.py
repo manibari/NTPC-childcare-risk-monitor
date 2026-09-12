@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS app_model_events(
   from_status TEXT, to_status TEXT NOT NULL, actor TEXT NOT NULL, reason TEXT);
 CREATE TABLE IF NOT EXISTS app_backtests(
   model_id INTEGER NOT NULL, obs_year INTEGER NOT NULL, n_obs INTEGER, n_pos INTEGER,
-  auc REAL, pr_auc REAL, top50 REAL, top100 REAL, top200 REAL, lead_days_median REAL, baseline TEXT);
+  auc REAL, pr_auc REAL, top50 REAL, top100 REAL, top200 REAL, lead_days_median REAL, baseline TEXT, metrics TEXT);
 CREATE INDEX IF NOT EXISTS ix_backtests ON app_backtests(model_id);
 CREATE TABLE IF NOT EXISTS app_score_batches(
   score_batch_id INTEGER PRIMARY KEY AUTOINCREMENT, asof_date TEXT NOT NULL, model_id INTEGER,
@@ -175,7 +175,7 @@ CREATE VIEW IF NOT EXISTS v_backtests AS SELECT * FROM app_backtests;
 CREATE VIEW IF NOT EXISTS v_model_events AS SELECT * FROM app_model_events;
 CREATE VIEW IF NOT EXISTS v_settings AS SELECT * FROM app_settings;
 CREATE VIEW IF NOT EXISTS v_pipeline_runs AS SELECT * FROM app_pipeline_runs;
-CREATE VIEW IF NOT EXISTS v_sentiment AS SELECT * FROM app_sentiment;
+CREATE VIEW IF NOT EXISTS v_sentiment AS SELECT preschool_id, fetched_at, query, n_items, n_negative, n_12m, items, rating, n_ratings FROM app_sentiment;
 CREATE VIEW IF NOT EXISTS v_ntpc_penalty_summary AS
   SELECT p.id, p.title, p.type, p.town, p.count_approved, p.is_active,
          COUNT(e.event_id) AS n_events, MIN(e.date) AS first_event, MAX(e.date) AS last_event,
@@ -224,6 +224,8 @@ class DBBuilder:
         con.executescript(APP_SCHEMA)
         for k, v in DEFAULT_SETTINGS.items():
             con.execute("INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)", (k, v))
+        if "metrics" not in {r[1] for r in con.execute("PRAGMA table_info(app_backtests)")}:
+            con.execute("ALTER TABLE app_backtests ADD COLUMN metrics TEXT")
         cols = {r[1] for r in con.execute("PRAGMA table_info(app_sentiment)")}
         for col, typ in (("rating", "REAL"), ("n_ratings", "INTEGER"), ("reviews", "TEXT"), ("place_id", "TEXT")):
             if col not in cols:
@@ -298,7 +300,7 @@ class DBBuilder:
                 n_old = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                 if n_old and n_new < n_old * (1 - ROW_DROP_THRESHOLD):
                     raise PipelineError(f"{t} 筆數驟降 {n_old} → {n_new}（-{(1-n_new/n_old):.0%} > {ROW_DROP_THRESHOLD:.0%}）",
-                                        "來源快照可能殘缺或被截斷", "檢查 data/kiang_*.json；確定要覆蓋則加 --force-rebuild", stage="build")
+                                        "來源快照可能殘缺或被截斷", "檢查 data/kiang_*.json；確定要覆蓋則設定環境變數 WATCHDOG_FORCE_REBUILD=1", stage="build")
         con.execute("BEGIN IMMEDIATE")
         try:
             for (v,) in con.execute("SELECT name FROM sqlite_master WHERE type='view'").fetchall():

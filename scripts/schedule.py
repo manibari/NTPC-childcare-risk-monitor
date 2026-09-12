@@ -57,8 +57,9 @@ def load_problem(con: sqlite3.Connection, city: str = "新北市") -> dict:
         if pid in cand:
             links.setdefault(lid, []).append(pid)
     pairs = [(a, b) for grp in links.values() for i, a in enumerate(grp) for b in grp[i + 1:]]
+    towns = dict(con.execute("SELECT id, town FROM src_preschools WHERE city=? AND is_active=1", (city,)).fetchall())
     return {"score_batch_id": bid, "n_inspectors": int(s["n_inspectors"]), "visits_per_week": int(s["visits_per_inspector_week"]),
-            "weeks": int(s["quarter_weeks"]), "candidates": cand, "must": must, "pairs": pairs}
+            "weeks": int(s["quarter_weeks"]), "candidates": cand, "must": must, "pairs": pairs, "towns": towns}
 
 
 PRESETS = {  # objective presets (Verdandi-OR style: the operator picks the goal, the solver picks the plan)
@@ -75,7 +76,14 @@ def solve(prob: dict, pinned: dict[str, tuple[int, int]] | None = None, excluded
     town_min, town_max = town_min or {}, town_max or {}
     wt = PRESETS.get(objective, PRESETS["risk"])
     I, V, W = prob["n_inspectors"], prob["visits_per_week"], prob["weeks"]
-    cand = {k: v for k, v in prob["candidates"].items() if k not in excluded}
+    cand = {k: dict(v) for k, v in prob["candidates"].items() if k not in excluded}
+    for p_, (w_, i_) in pinned.items():
+        if p_ in excluded:
+            raise PipelineError("同一園同時釘選與排除", p_, "移除其中一項", stage="schedule")
+        if not (0 <= w_ < W and 0 <= i_ < I):
+            raise PipelineError("釘選的週或稽查員超出範圍", f"{p_}: 週 {w_ + 1} / 稽查員 {i_ + 1}", f"週 1–{W}、稽查員 1–{I}", stage="schedule")
+        if p_ not in cand:
+            cand[p_] = {"town": prob["towns"].get(p_, "—"), "risk": 0.2, "rank": None, "level": "釘選", "why": "承辦釘選"}
     must = {p for p in prob["must"] if p in cand}
     cap = I * V * W
     if cap <= 0:

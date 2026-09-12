@@ -12,6 +12,8 @@ from db import DEFAULT_DB, connect  # noqa: E402
 from errors import PipelineError, UsageError  # noqa: E402
 
 MAX_AUC_DROP = 0.05
+from db import ROOT  # noqa: E402
+MODEL_DIR = ROOT / "data" / "models"
 
 
 def approve(con: sqlite3.Connection, model_id: int, actor: str, force: bool = False) -> None:
@@ -19,6 +21,8 @@ def approve(con: sqlite3.Connection, model_id: int, actor: str, force: bool = Fa
     if row is None:
         raise UsageError(f"model_id {model_id} 不存在", "查無此版本", "先跑 train.py", stage="approve")
     status, auc, beats = row
+    if not (MODEL_DIR / f"model_{model_id}.pkl").exists():
+        raise PipelineError("模型檔不存在，不核准", f"data/models/model_{model_id}.pkl 遺失", "重新訓練此版本", stage="approve")
     if not beats and not force:
         raise PipelineError("模型未勝過按次數排序，不核准", "回測 AUC 或前 100 覆蓋率未同時優於 count baseline",
                             "維持規則排序；或 --force 明示理由", stage="approve")
@@ -44,10 +48,14 @@ def approve(con: sqlite3.Connection, model_id: int, actor: str, force: bool = Fa
 
 def retire(con: sqlite3.Connection, model_id: int, actor: str, reason: str = "") -> None:
     con.execute("BEGIN IMMEDIATE")
-    con.execute("UPDATE app_models SET status='retired' WHERE model_id=?", (model_id,))
-    con.execute("INSERT INTO app_model_events(model_id, at, from_status, to_status, actor, reason) VALUES (?,?,?,?,?,?)",
-                (model_id, date.today().isoformat(), "active", "retired", actor, reason))
-    con.execute("COMMIT")
+    try:
+        con.execute("UPDATE app_models SET status='retired' WHERE model_id=?", (model_id,))
+        con.execute("INSERT INTO app_model_events(model_id, at, from_status, to_status, actor, reason) VALUES (?,?,?,?,?,?)",
+                    (model_id, date.today().isoformat(), "active", "retired", actor, reason))
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:

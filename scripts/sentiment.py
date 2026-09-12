@@ -46,7 +46,10 @@ def parse_rss(xml_text: str) -> list[dict]:
             pub = parsedate_to_datetime(it.findtext("pubDate") or "").date().isoformat()
         except Exception:
             pub = None
-        out.append({"title": title, "link": it.findtext("link"), "source": src.text if src is not None else None, "date": pub, "tone": classify(title)})
+        link = (it.findtext("link") or "").strip()
+        if not re.match(r"^https?://", link):
+            link = None
+        out.append({"title": title, "link": link, "source": src.text if src is not None else None, "date": pub, "tone": classify(title)})
     return out
 
 
@@ -55,7 +58,7 @@ def fetch(title: str, timeout: int = 8) -> dict:
     url = RSS.format(q=urllib.parse.quote(q))
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 smart-watchdog/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        items = parse_rss(r.read().decode("utf-8", "replace"))
+        items = parse_rss(r.read(2_000_000).decode("utf-8", "replace"))
     cutoff = (date.today() - timedelta(days=365)).isoformat()
     items.sort(key=lambda x: x["date"] or "", reverse=True)
     return {"query": q, "items": items[:30], "n_items": len(items), "n_negative": sum(i["tone"] == "負面" for i in items),
@@ -94,7 +97,5 @@ def get_or_refresh(con: sqlite3.Connection, preschool_id: str, title: str, town:
     con.execute("INSERT OR REPLACE INTO app_sentiment(preschool_id, fetched_at, query, n_items, n_negative, n_12m, items, rating, n_ratings, reviews, place_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (preschool_id, now, r["query"], r["n_items"], r["n_negative"], r["n_12m"], json.dumps(r["items"], ensure_ascii=False),
                  rv["rating"] if rv else None, rv["n_ratings"] if rv else None, json.dumps(rv["reviews"], ensure_ascii=False) if rv else None, rv["place_id"] if rv else None))
-    if con.in_transaction:
-        con.commit()
     return {"preschool_id": preschool_id, "fetched_at": now, "cached": False, "age_days": 0, **r,
             "rating": rv["rating"] if rv else None, "n_ratings": rv["n_ratings"] if rv else None, "reviews": rv["reviews"] if rv else [], "reviews_enabled": _reviews.enabled()}

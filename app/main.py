@@ -9,7 +9,7 @@ import pathlib
 import sqlite3
 import sys
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -50,6 +50,19 @@ async def _api_err(request: Request, e: ApiError):
     if e.state:
         body["state"] = e.state
     return JSONResponse(status_code=e.status, content=body)
+
+
+from fastapi.exceptions import RequestValidationError
+
+
+@app.exception_handler(RequestValidationError)
+async def _val_err(request: Request, e: RequestValidationError):
+    return JSONResponse(status_code=422, content={"error": {"code": "VALIDATION", "message": "參數格式錯誤", "hint": str(e.errors()[:3])[:300], "retryable": False, "request_id": uuid.uuid4().hex[:12]}})
+
+
+@app.exception_handler(Exception)
+async def _any_err(request: Request, e: Exception):
+    return JSONResponse(status_code=500, content={"error": {"code": "INTERNAL", "message": "伺服器錯誤", "hint": str(e)[:200], "retryable": True, "request_id": uuid.uuid4().hex[:12]}})
 
 
 @app.exception_handler(PipelineError)
@@ -99,8 +112,8 @@ def stale(con, s) -> bool:
 @app.get("/api/v1/overview")
 def overview():
     con = ro(); require_scores(con); s = settings(con)
-    asof = s["data_asof"]; d12 = (date.fromisoformat(asof).replace(year=date.fromisoformat(asof).year - 1)).isoformat()
-    d36 = (date.fromisoformat(asof).replace(year=date.fromisoformat(asof).year - 3)).isoformat()
+    asof = s["data_asof"]; d12 = (date.fromisoformat(asof) - timedelta(days=365)).isoformat()
+    d36 = (date.fromisoformat(asof) - timedelta(days=3 * 365)).isoformat()
     lv = {r["level"]: r["n"] for r in rows(con, "SELECT level, COUNT(*) n FROM v_scores GROUP BY level")}
     watch = {r["tier"]: r["n"] for r in rows(con, "SELECT tier, COUNT(*) n FROM v_watchlist GROUP BY tier")}
     pen = one(con, "SELECT COUNT(DISTINCT e.preschool_id) n_pen, SUM(CASE WHEN e.date>? THEN 1 ELSE 0 END) ev12, COUNT(DISTINCT CASE WHEN e.date>? THEN e.preschool_id END) s12 FROM v_penalty_events e JOIN v_preschools p ON p.id=e.preschool_id WHERE p.city=?", (d12, d12, CITY))
@@ -271,7 +284,14 @@ def schedule_solve(body: SolveReq):
     con = rw()
     if not one(con, "SELECT 1 FROM v_scores LIMIT 1"):
         raise ApiError(409, "NO_SCORES", "尚未評分", state="no_scores")
-    pinned = {k: (v[0] - 1, v[1] - 1) for k, v in body.pinned.items()}
+    st = settings(con); W, I_ = int(st["quarter_weeks"]), int(st["n_inspectors"])
+    pinned = {}
+    for k, v in body.pinned.items():
+        if not (isinstance(v, list) and len(v) == 2): raise ApiError(400, "BAD_PIN", f"{k}: 釘選需為 [週, 稽查員]")
+        if not (1 <= v[0] <= W and 1 <= v[1] <= I_): raise ApiError(400, "BAD_PIN", f"{k}: 週需 1–{W}、稽查員需 1–{I_}")
+        if k in body.excluded: raise ApiError(400, "BAD_PIN", f"{k}: 同時釘選與排除")
+        if not one(con, "SELECT 1 FROM v_preschools WHERE id=? AND is_active=1", (k,)): raise ApiError(404, "NOT_FOUND", f"釘選園 {k} 不存在或已停辦")
+        pinned[k] = (v[0] - 1, v[1] - 1)
     if body.objective not in ("risk", "cluster", "balanced"): raise ApiError(400, "BAD_VALUE", "objective 需為 risk / cluster / balanced")
     res = run(con, pinned=pinned, excluded=set(body.excluded), max_time=min(body.max_time, 60),
               town_min={k: int(v) for k, v in body.town_min.items() if int(v) > 0}, town_max={k: int(v) for k, v in body.town_max.items() if int(v) > 0}, objective=body.objective)
@@ -309,7 +329,7 @@ def season_list():
               LEFT JOIN v_linkers l ON l.linker_id=w.linker_id LEFT JOIN v_scores s ON s.preschool_id=w.preschool_id LEFT JOIN v_schedule_visits v ON v.preschool_id=w.preschool_id
               WHERE w.tier=? ORDER BY s.rank"""
     manual = rows(con, "SELECT z.*, p.title, p.town, s.level, s.rank, s.score, s.prob_12m FROM v_season_list z JOIN v_preschools p ON p.id=z.preschool_id LEFT JOIN v_scores s ON s.preschool_id=z.preschool_id WHERE z.status<>'removed'")
-    d36 = (date.fromisoformat(settings(con)["data_asof"]).replace(year=date.fromisoformat(settings(con)["data_asof"]).year - 3)).isoformat()
+    d36 = (date.fromisoformat(settings(con)["data_asof"]) - timedelta(days=3 * 365)).isoformat()
     def enrich(lst):
         for r in lst:
             pen = rows(con, "SELECT law_article, law, punishment, date, is_child_safety FROM v_penalties WHERE preschool_id=? AND date>? ORDER BY date DESC", (r["preschool_id"], d36))
@@ -395,15 +415,16 @@ def backtest():
 
 # ----------------------------------------------------------------------------- models (train / approve / retire)
 import threading
-TRAIN_STATE: dict = {"running": False, "algo": None, "started_at": None, "result": None, "error": None}
+TRAIN_STATE: dict = {"running": False, "algo": None, "feature_set": "events", "started_at": None, "result": None, "error": None}
+TRAIN_LOCK = threading.Lock()
 
 
-def _train_worker(algo: str):
+def _train_worker(algo: str, feature_set: str = "events"):
     from train import train_and_record
     con = rw()
     try:
         asof = settings(con)["data_asof"]
-        mid = train_and_record(con, algo, asof)
+        mid = train_and_record(con, algo, asof, feature_set=feature_set)
         row = one(con, "SELECT model_id, algo, auc, top100_cov, beats_baseline FROM v_models WHERE model_id=?", (mid,))
         TRAIN_STATE.update(result=row, error=None)
     except Exception as e:
@@ -418,27 +439,48 @@ def models_list():
     models = rows(con, "SELECT * FROM v_models ORDER BY model_id DESC")
     for m in models:
         m["params"] = json.loads(m["params"]) if m["params"] else {}
-        m["backtests"] = rows(con, "SELECT obs_year, baseline, n_obs, n_pos, auc, top100, lead_days_median FROM v_backtests WHERE model_id=? ORDER BY obs_year, baseline", (m["model_id"],))
+        m["backtests"] = rows(con, "SELECT obs_year, baseline, n_obs, n_pos, auc, top100, lead_days_median, metrics FROM v_backtests WHERE model_id=? ORDER BY obs_year, baseline", (m["model_id"],))
+        pooled = {}
+        for b in m["backtests"]:
+            b["metrics"] = json.loads(b["metrics"]) if b.get("metrics") else None
+            if b["metrics"] and not b["baseline"]:
+                for name, at in b["metrics"]["at"].items():
+                    q = pooled.setdefault(name, {"threshold": at["threshold"], "tp": 0, "fp": 0, "fn": 0, "tn": 0})
+                    for k in ("tp", "fp", "fn", "tn"): q[k] += at[k]
+                pooled.setdefault("_brier", []).append((b["metrics"]["brier"], b["n_obs"])); pooled.setdefault("_ll", []).append((b["metrics"]["log_loss"], b["n_obs"]))
+        for name, q in list(pooled.items()):
+            if name.startswith("_"): continue
+            tp, fp, fn, tn = q["tp"], q["fp"], q["fn"], q["tn"]; n = tp + fp + fn + tn or 1
+            po = (tp + tn) / n; pe = ((tp + fp) * (tp + fn) + (fn + tn) * (fp + tn)) / (n * n)
+            q.update(accuracy=po, precision=tp / max(tp + fp, 1), recall=tp / max(tp + fn, 1), specificity=tn / max(tn + fp, 1),
+                     f1=2 * tp / max(2 * tp + fp + fn, 1), kappa=(po - pe) / (1 - pe) if pe < 1 else 0.0,
+                     balanced_accuracy=(tp / max(tp + fn, 1) + tn / max(tn + fp, 1)) / 2, flagged=tp + fp, n=n, n_pos=tp + fn)
+        wavg = lambda xs: sum(v * w for v, w in xs) / max(sum(w for _, w in xs), 1)  # noqa: E731
+        m["pooled"] = {k: v for k, v in pooled.items() if not k.startswith("_")} | ({"brier": wavg(pooled["_brier"]), "log_loss": wavg(pooled["_ll"])} if "_brier" in pooled else {})
     events = rows(con, "SELECT e.*, m.algo FROM app_model_events e JOIN v_models m ON m.model_id=e.model_id ORDER BY e.event_id DESC LIMIT 30") if False else rows(con, "SELECT * FROM v_model_events ORDER BY event_id DESC LIMIT 30")
-    from features import EVENT_FEATURES, feature_hash
+    from features import ATTR_FEATURES, EVENT_FEATURES, feature_hash
     from score import FEATURE_ZH
     from train import BEATS_MARGIN, GAP_DAYS, MIN_POS, SEED
     return {"models": models, "events": events, "train": TRAIN_STATE, "active": one(con, "SELECT model_id, algo FROM v_models WHERE status='active'"),
-            "features": [{"key": f, "zh": FEATURE_ZH.get(f, f)} for f in EVENT_FEATURES], "feature_hash": feature_hash(),
+            "features": [{"key": f, "zh": FEATURE_ZH.get(f, f)} for f in EVENT_FEATURES], "attr_features": [{"key": f, "zh": FEATURE_ZH.get(f, f)} for f in ATTR_FEATURES], "feature_hash": feature_hash(),
             "gate": {"margin": BEATS_MARGIN, "gap_days": GAP_DAYS, "min_pos": MIN_POS, "seed": SEED},
             "current_method": (one(con, "SELECT batch_method FROM v_scores LIMIT 1") or {}).get("batch_method")}
 
 
 class TrainReq(BaseModel):
     algo: str = "logreg"
+    feature_set: str = "events"
 
 
 @app.post("/api/v1/models/train")
 def models_train(body: TrainReq):
+    from features import FEATURE_SETS
     if body.algo not in ("gbdt", "logreg"): raise ApiError(400, "BAD_VALUE", "algo 需為 gbdt 或 logreg")
-    if TRAIN_STATE["running"]: raise ApiError(409, "TRAIN_RUNNING", "已有訓練在進行", state="training")
-    TRAIN_STATE.update(running=True, algo=body.algo, started_at=datetime.now().isoformat(timespec="seconds"), result=None, error=None)
-    threading.Thread(target=_train_worker, args=(body.algo,), daemon=True).start()
+    if body.feature_set not in FEATURE_SETS: raise ApiError(400, "BAD_VALUE", "feature_set 需為 " + " / ".join(FEATURE_SETS))
+    with TRAIN_LOCK:
+        if TRAIN_STATE["running"]: raise ApiError(409, "TRAIN_RUNNING", "已有訓練在進行", state="training")
+        TRAIN_STATE.update(running=True, algo=body.algo, feature_set=body.feature_set, started_at=datetime.now().isoformat(timespec="seconds"), result=None, error=None)
+    threading.Thread(target=_train_worker, args=(body.algo, body.feature_set), daemon=True).start()
     return {"ok": True, "state": "training"}
 
 
@@ -452,8 +494,16 @@ def models_approve(model_id: int, body: ApproveReq):
     from approve import approve as do_approve
     from score import score_all
     con = rw()
+    prev = one(con, "SELECT model_id FROM v_models WHERE status='active'")
     do_approve(con, model_id, body.actor, body.force)
-    r = score_all(con)
+    try:
+        r = score_all(con)
+    except Exception as e:  # approval without usable scores must not stand: roll back to the previous active
+        from approve import retire
+        retire(con, model_id, body.actor, f"rescore failed: {str(e)[:120]}")
+        if prev:
+            do_approve(con, prev["model_id"], body.actor, force=True)
+        raise ApiError(422, "RESCORE_FAILED", "核准已撤回：重新評分失敗", str(e)[:200])
     con.execute("UPDATE app_schedules SET is_stale=1 WHERE is_current=1")
     return {"ok": True, "active": model_id, "rescored": r["levels"], "method": r["method"]}
 
@@ -549,13 +599,15 @@ def export(scope: str = "season", format: str = "xlsx", town: str | None = None,
     cols = [c for c in cols if any(c in it for it in items)]
     head = {"title": "園名", "town": "行政區", "type": "立案別", "score": "分數", "causes_text": "根因（36 月違規類型）", "focus_text": "稽查重點", "level": "等級", "rank": "排名", "reason": "理由", "tier": "層別", "層": "層", "linker_name": "負責人", "linker_code": "負責人代碼", "week_no": "週", "inspector_no": "稽查員", "n_events": "裁罰事件數", "last_event": "最近裁罰"}
     fname = f"watchdog-{scope}-{date.today().isoformat()}"
+    def cell(v):  # neutralise spreadsheet formula injection
+        return ("'" + v) if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
     if format == "csv":
         buf = io.StringIO(); w = csv.writer(buf); w.writerow(head[c] for c in cols)
-        for it in items: w.writerow(it.get(c, "") for c in cols)
+        for it in items: w.writerow(cell(it.get(c, "")) for c in cols)
         return StreamingResponse(iter([("﻿" + buf.getvalue()).encode("utf-8")]), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{fname}.csv"'})
     from openpyxl import Workbook
     wb = Workbook(); ws = wb.active; ws.title = scope; ws.append([head[c] for c in cols])
-    for it in items: ws.append([it.get(c, "") for c in cols])
+    for it in items: ws.append([cell(it.get(c, "")) for c in cols])
     bio = io.BytesIO(); wb.save(bio); bio.seek(0)
     return StreamingResponse(bio, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{fname}.xlsx"'})
 

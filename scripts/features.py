@@ -20,11 +20,13 @@ EVENT_FEATURES = [
     "events_per_year", "n_child_safety_total", "n_child_safety_36m", "has_stop_enroll", "has_person_actor",
     "n_rows_total", "n_articles_last", "n_events_prev_12m",
 ]
+ATTR_FEATURES = ["is_private", "is_nonprofit", "count_approved", "years_since_reg", "is_pre_public", "town_event_rate", "town_n_schools"]
 LABEL_MIN_DAYS, LABEL_MAX_DAYS = 31, 365
+FEATURE_SETS = {"events": EVENT_FEATURES, "events+attrs": EVENT_FEATURES + ATTR_FEATURES}
 
 
-def feature_hash() -> str:
-    return hashlib.sha256((FEATURE_VERSION + "|" + ",".join(EVENT_FEATURES)).encode()).hexdigest()[:12]
+def feature_hash(feature_set: str = "events") -> str:
+    return hashlib.sha256((FEATURE_VERSION + "|" + feature_set + "|" + ",".join(FEATURE_SETS[feature_set])).encode()).hexdigest()[:12]
 
 
 def is_quarter_end(d: date) -> bool:
@@ -45,7 +47,7 @@ def _quarter_ends(start: date, end: date) -> list[date]:
 def load_events(con: sqlite3.Connection, city: str = "新北市") -> pd.DataFrame:
     ev = pd.read_sql_query(
         """SELECT e.event_id, e.preschool_id, e.date, e.n_rows, e.n_articles, e.is_child_safety,
-                  e.has_stop_enroll, e.has_person_actor, p.reg_date
+                  e.has_stop_enroll, e.has_person_actor, p.reg_date, p.town
            FROM src_penalty_events e JOIN src_preschools p ON p.id = e.preschool_id
            WHERE p.city = ? ORDER BY e.preschool_id, e.date""", con, params=(city,))
     ev["date"] = pd.to_datetime(ev["date"]).dt.date
@@ -55,6 +57,8 @@ def load_events(con: sqlite3.Connection, city: str = "新北市") -> pd.DataFram
 
 def observation_points(ev: pd.DataFrame, data_asof: date, include_latest: bool = True) -> pd.DataFrame:
     """One row per (preschool_id, asof) where the school has history on/before asof."""
+    if ev.empty:
+        return pd.DataFrame(columns=["preschool_id", "asof"])
     rows = []
     q_ends = _quarter_ends(ev["date"].min(), data_asof)
     for pid, g in ev.groupby("preschool_id", sort=False):
@@ -80,7 +84,8 @@ def build_features(ev: pd.DataFrame, obs: pd.DataFrame, data_asof: date) -> pd.D
         dates = np.array(g["date"].tolist())
         for a in g_obs["asof"]:
             past = g[dates <= a]
-            assert len(past) and past["date"].max() <= a, "leakage: event after asof used"  # REGRESSION guard
+            if not len(past) or past["date"].max() > a:  # REGRESSION guard (not an assert: survives python -O)
+                raise RuntimeError(f"leakage: event after asof used for {pid} @ {a}")
             last, first = past["date"].max(), past["date"].min()
             d12, d36, d24 = a - timedelta(days=365), a - timedelta(days=3 * 365), a - timedelta(days=2 * 365)
             in12 = past[past["date"] > d12]
@@ -110,11 +115,36 @@ def build_features(ev: pd.DataFrame, obs: pd.DataFrame, data_asof: date) -> pd.D
     return df
 
 
-def feature_frame(con: sqlite3.Connection, data_asof: str | date, city: str = "新北市") -> pd.DataFrame:
+def attach_attributes(con: sqlite3.Connection, df: pd.DataFrame, ev: pd.DataFrame, city: str = "新北市") -> pd.DataFrame:
+    """Snapshot attributes (fv2): school type/size/age + the town's event rate computed only from events before asof
+    (time-safe). Excluded from the default feature set by design; enabled with feature_set='events+attrs'."""
+    ps = pd.read_sql_query("SELECT id, type, town, count_approved, reg_date, is_pre_public FROM src_preschools WHERE city=?", con, params=(city,))
+    ps["reg"] = pd.to_datetime(ps["reg_date"], errors="coerce").dt.date
+    n_town = ps.groupby("town").size()
+    m = df.merge(ps[["id", "type", "town", "count_approved", "reg", "is_pre_public"]], left_on="preschool_id", right_on="id", how="left")
+    m["is_private"] = (m["type"] == "私立").astype(int)
+    m["is_nonprofit"] = (m["type"] == "非營利").astype(int)
+    m["count_approved"] = pd.to_numeric(m["count_approved"], errors="coerce").fillna(0)
+    m["years_since_reg"] = [((a - r).days / 365.25 if isinstance(r, date) else 0.0) for a, r in zip(m["asof"], m["reg"])]
+    m["is_pre_public"] = pd.to_numeric(m["is_pre_public"], errors="coerce").fillna(0).astype(int)
+    m["town_n_schools"] = m["town"].map(n_town).fillna(0)
+    ev_sorted = ev.sort_values("date")
+    rates = []
+    for a, tn in zip(m["asof"], m["town"]):
+        past = ev_sorted[(ev_sorted["town"] == tn) & (ev_sorted["date"] <= a) & (ev_sorted["date"] > a - timedelta(days=3 * 365))]
+        rates.append(len(past) / max(n_town.get(tn, 1), 1))
+    m["town_event_rate"] = rates
+    return m.drop(columns=["id", "type", "town", "reg"])
+
+
+def feature_frame(con: sqlite3.Connection, data_asof: str | date, city: str = "新北市", feature_set: str = "events") -> pd.DataFrame:
     data_asof = date.fromisoformat(data_asof) if isinstance(data_asof, str) else data_asof
     ev = load_events(con, city)
     obs = observation_points(ev, data_asof)
-    return build_features(ev, obs, data_asof)
+    df = build_features(ev, obs, data_asof)
+    if feature_set == "events+attrs":
+        df = attach_attributes(con, df, ev, city)
+    return df
 
 
 # ----------------------------------------------------------------------------- 回頭客燈號 (rule score)

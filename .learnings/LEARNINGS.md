@@ -31,3 +31,9 @@
 - 「負責人給名字」「不要用連坐」：詞彙要用承辦的詞；負責人是公開登記資料，可顯示。
 - 「排程可以讓人選每區幾個跟 optima」：最佳化要有可調的目標與配額（參考 Verdandi-OR live console），不是黑盒一鍵。
 - 「詳情第一眼要看到分數／機率／排名／裁罰數」：hero 放結論，關聯圖是佐證往下放。
+
+
+## 2026-09-12 · best_practice · 對抗審查抓到的三類坑（Codex + Claude 雙聲道）
+- **demo 資料與模型檔要一起進 repo**：demo DB 內有 active 模型但 pkl 被 gitignore，fresh clone 直接在評分階段中止。規則：任何「DB 指向檔案」的東西，bootstrap 要能重建或一起 commit，且缺檔要降級不中止。
+- **核准與重新評分要同交易語意**：先切 active 再評分，評分失敗就留下壞狀態；改成 preflight 檔案存在 + 失敗自動撤回。
+- **訓練先寫 DB 再寫檔、UPSERT 覆寫 active 列**：都會產生「DB 說有、檔案沒有」；改成先原子寫檔再 commit，且同鍵 active 列不覆寫。

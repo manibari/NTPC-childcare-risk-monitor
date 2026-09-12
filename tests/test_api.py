@@ -87,3 +87,14 @@ def test_agent_sql_guard():
     r = a.sql_readonly("SELECT title FROM v_preschools WHERE city='新北市'")
     assert r["n"] == 200                                                                # LIMIT enforced
     assert "error" in a.sql_readonly("SELECT 1; SELECT 2")
+
+
+def test_pin_validation_models_and_validation_envelope(client):
+    r = client.post("/api/v1/schedule/solve", json={"pinned": {"x": [1]}, "excluded": []})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "BAD_PIN"
+    r = client.get("/api/v1/rankings?page=abc")
+    assert r.status_code == 422 and r.json()["error"]["code"] == "VALIDATION"
+    r = client.get("/api/v1/models"); assert r.status_code == 200
+    m = r.json(); assert m["active"] and any(x["pooled"].get("mid", {}).get("kappa") is not None for x in m["models"] if x["status"] == "active")
+    r = client.get("/api/v1/export?scope=rankings&format=csv"); assert r.status_code == 200
+    assert not any(line.startswith(("=", "+", "@")) for line in r.text.splitlines()[1:])

@@ -72,8 +72,8 @@ class AgentService:
 
     def sql_readonly(self, sql: str) -> dict:
         s = sql.strip().rstrip(";")
-        if ";" in s or FORBIDDEN.search(s) or not re.match(r"^(select|with)\b", s, re.I):
-            return {"error": "只允許單一 SELECT 查詢"}
+        if not re.match(r"^(select|with)\b", s, re.I):
+            return {"error": "只允許單一 SELECT 查詢"}  # sqlite3.execute itself refuses multi-statement strings; the authorizer is the real gate
         if not re.search(r"\blimit\s+\d+", s, re.I):
             s += f" LIMIT {MAX_ROWS}"
         try:
