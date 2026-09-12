@@ -100,8 +100,8 @@ DEFAULT_SETTINGS = {
     "n_inspectors": "3",
     "visits_per_inspector_week": "8",
     "quarter_weeks": "13",
-    "high_threshold": "0.50",   # prob_12m ≥ → 高
-    "mid_threshold": "0.25",    # prob_12m ≥ → 中
+    "high_threshold": "0.30",   # prob_12m ≥ → 高
+    "mid_threshold": "0.18",    # prob_12m ≥ → 中
     "top_n_default": "100",
     "watch_window_months": "12",
     "stale_days": "90",

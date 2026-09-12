@@ -40,8 +40,8 @@
 - [x] **P0 資料層加固**：`scripts/db.py` DBBuilder（src_/app_、單交易重建、WAL、schema 斷言、筆數驟降、孤兒檢查、app_ 永不 drop、`schema_version`）；`penalty_events` 去重；`is_child_safety`；`app_settings` 預設（人力三參數、門檻、top_n、觀察期、stale_days、anonymize_titles）；`app_pipeline_runs`；`pyproject.toml` + `.python-version` + `.env.example`；`tests/` 骨架 + 去重／DB 保留兩條測試。exploration/findings/memory 數字改事件層。
 - [x] **P1 Linker**：owner / 委辦法人 → `app_linkers`（持久、首次配碼永不回收）、`preschool_linkers`（同名判定 5 km）、`app_watchlist` 兩層；kiang 覆蓋率驗證腳本（T5）。
 - [x] **P2 觀察點／訓練／回測／ROI**：`features.py`（事件史 vs 快照、洩漏 assert、31–365 標籤、≥ reg_date）；`train.py`（walk-forward gap 365、GBDT + 邏輯迴歸、三 baseline、feature_hash/eval_year/seed、`app_models`+`app_backtests`+`app_model_events`）；`approve.py`（單一 active、降幅規則）；`roi.py`（歷史年重播排程 vs 輪流）。**Go/no-go 決定主張。** → **結果（2026-09-12 實跑）：GBDT AUC 0.607 vs 按次數 0.606、前 100 覆蓋 0.435 vs 0.431，邏輯迴歸 AUC 0.640 但覆蓋率持平 → 未達 0.02 邊際，主張＝規則（回頭客燈號），模型只當驗證附錄。ROI 重播 2021–2024：規則排程覆蓋 40–53% 次年裁罰園 vs 輪流 25–28%（含首犯園計入分母）。**
-- [ ] **P3 評分**：`score.py`（rule → model 條件切換 → 無紀錄；`score_batch_id` 交易切 current；`risk_01`；等級絕對門檻 + 前 N；top 理由白話句）。
-- [ ] **P3b 排程**：`schedule.py`（CP-SAT，架構定調 4）+ `app_schedules`/`app_schedule_visits`；候選前 300 + 必訪 + 連坐園。
+- [x] **P3 評分**：`score.py`（rule → model 條件切換 → 無紀錄；`score_batch_id` 交易切 current；`risk_01`；等級絕對門檻 + 前 N；top 理由白話句）。→ 實跑：規則版 prob_12m = 分桶經驗再犯率（最高 0.385），門檻預設改 高 0.30／中 0.18（≈ 2×／1.2× 基準率 0.153）→ 高 18／中 35／低 434／無紀錄 710／停辦 19。
+- [x] **P3b 排程**：`schedule.py`（CP-SAT，架構定調 4）+ `app_schedules`/`app_schedule_visits`；候選前 300 + 必訪 + 連坐園。→ 實跑：302 候選、67 必訪、產能 312，全數覆蓋，20s FEASIBLE。
 
 ### 刀 2
 
