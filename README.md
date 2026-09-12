@@ -9,7 +9,7 @@
 ## Quickstart（clone → 真資料畫面 ≤ 5 分鐘，不需 raw PDF、不需 OCR、不需 API key）
 
 ```bash
-git clone https://github.com/manibari/NTPC-childcare-risk-monitor && cd NTPC-childcare-risk-monitor
+git clone https://github.com/mumigood/NTPC-childcare-risk-monitor && cd NTPC-childcare-risk-monitor
 make bootstrap        # pip install → 沒有本地資料就用 data/demo/watchdog-demo.sqlite → 評分 → 排程 → 開 http://localhost:8765/
 ```
 
