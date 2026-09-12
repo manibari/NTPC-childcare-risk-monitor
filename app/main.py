@@ -170,7 +170,8 @@ def rankings(town: str | None = None, type: str | None = None, level: str | None
                           {link_sub} linker_code, {name_sub} linker_name,
                           EXISTS(SELECT 1 FROM v_season_list z WHERE z.preschool_id=s.preschool_id AND z.status<>'removed') in_season_list,
                           (SELECT tier FROM v_watchlist w WHERE w.preschool_id=s.preschool_id LIMIT 1) watch_tier,
-                          m.n_items news_n, m.n_negative news_neg, m.n_12m news_12m, m.rating, m.n_ratings
+                          m.n_items news_n, m.n_negative news_neg, m.n_12m news_12m, m.rating, m.n_ratings,
+                          EXISTS(SELECT 1 FROM v_ratios f WHERE f.preschool_id=s.preschool_id) has_finance
                           FROM v_scores s JOIN v_preschools p ON p.id=s.preschool_id LEFT JOIN v_sentiment m ON m.preschool_id=s.preschool_id WHERE {w}
                           ORDER BY s.rank IS NULL, s.rank, s.level='停辦', p.title LIMIT ? OFFSET ?""", args + [size, (page - 1) * size])
     for it in items:
@@ -204,6 +205,17 @@ def preschool(pid: str):
     if fin:
         pl = json.loads(fin["payload"]); finance = {"fiscal_year": fin["fiscal_year"], "ratios": {k: fnum(pl.get(k)) for k in FIN_KEYS}}
         finance["history"] = [{"fiscal_year": r["fiscal_year"], **{k: fnum(json.loads(r["payload"]).get(k)) for k in FIN_KEYS[:2]}} for r in rows(con, "SELECT fiscal_year, payload FROM v_ratios WHERE preschool_id=? ORDER BY fiscal_year", (pid,))]
+        op = next((l for l in links if l["kind"] == "operator"), None)
+        peers = []
+        if op:
+            for q in rows(con, """SELECT r.preschool_id, r.title, r.fiscal_year, r.payload FROM v_ratios r JOIN v_preschool_linkers l ON l.preschool_id=r.preschool_id
+                                  WHERE l.linker_id=? AND r.preschool_id<>? AND r.fiscal_year=(SELECT MAX(fiscal_year) FROM v_ratios x WHERE x.preschool_id=r.preschool_id)""", (op["linker_id"], pid)):
+                pl2 = json.loads(q["payload"]); peers.append({"preschool_id": q["preschool_id"], "title": q["title"], "fiscal_year": q["fiscal_year"], **{k: fnum(pl2.get(k)) for k in FIN_KEYS[:2]}})
+        finance["peers"] = peers
+        med = rows(con, "SELECT payload FROM v_ratios r WHERE r.fiscal_year=(SELECT MAX(fiscal_year) FROM v_ratios x WHERE x.preschool_id=r.preschool_id)")
+        def _m(k):
+            xs = sorted(v for v in (fnum(json.loads(r["payload"]).get(k)) for r in med) if v is not None); return xs[len(xs) // 2] if xs else None
+        finance["median"] = {k: _m(k) for k in FIN_KEYS[:2]}
     visit = one(con, "SELECT week_no, inspector_no, pinned, reason FROM v_schedule_visits WHERE preschool_id=?", (pid,))
     season = bool(one(con, "SELECT 1 FROM v_season_list WHERE preschool_id=? AND status<>'removed'", (pid,)))
     gap = None
