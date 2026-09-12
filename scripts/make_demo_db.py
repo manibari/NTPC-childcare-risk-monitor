@@ -1,7 +1,7 @@
 """Build data/demo/watchdog-demo.sqlite from the working DB.
 
-Kept: school titles and 負責人 names (public registry data, Peter 2026-09-12). Blanked: penalised individuals
-(actor/actor_name), tel/address/url, Google review full text (UGC; stars and counts stay), agent turns, feedback, run logs.
+Kept: school titles and 負責人 names (public registry data, Peter 2026-09-12). Google reviews kept as fetched (Peter 2026-09-12).
+Blanked: penalised individuals (actor/actor_name), tel/address/url, agent turns, feedback, run logs.
 """
 import pathlib
 import shutil
@@ -22,14 +22,12 @@ def main() -> int:
     con.executescript("""
       UPDATE src_preschools SET tel = NULL, address = NULL, url = NULL;
       UPDATE src_penalties SET actor = NULL, actor_name = NULL;
-      UPDATE app_sentiment SET reviews = '[]' WHERE reviews IS NOT NULL;
       DELETE FROM app_agent_turns; DELETE FROM app_feedback;
       DELETE FROM app_pipeline_runs;
       VACUUM;""")
     n = con.execute("SELECT COUNT(*) FROM src_penalties WHERE actor_name IS NOT NULL").fetchone()[0]
-    r = con.execute("SELECT COUNT(*) FROM app_sentiment WHERE reviews NOT IN ('[]') AND reviews IS NOT NULL").fetchone()[0]
     con.close()
-    assert n == 0 and r == 0
+    assert n == 0
     print(OUT, round(OUT.stat().st_size / 1e6, 1), "MB")
     return 0
 
