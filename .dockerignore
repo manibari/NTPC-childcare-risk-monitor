@@ -1,0 +1,13 @@
+*
+!pyproject.toml
+!app/**
+!scripts/**
+!web/**
+!data/
+!data/models/
+!data/models/*.pkl
+!data/demo/
+!data/demo/watchdog-demo.sqlite
+!deploy/
+!deploy/entrypoint.sh
+**/__pycache__

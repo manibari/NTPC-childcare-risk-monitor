@@ -49,3 +49,8 @@ ROI 重播：同樣 312 次／季人力，規則排程命中次年被罰園 40�
 
 `task_plan.md`（實作計畫與決策）· `docs/requirements/`、`docs/flows/`、`docs/design/`（SD + 圖）· `docs/reviews/2026-09-12-autoplan.md`（四階段審查）· `docs/exploration.md`（探索與財報結論）· `mockups/smart-watchdog-v2.html`。
 主辦方 raw PDF（1.8 GB）與 OCR 流程見 `docs/exploration.md` 與 `scripts/ocr_*.py`。
+
+## AWS CI/CD
+
+Docker + ECR + EC2（Docker Compose YAML），Nginx 對外 port `12020`。
+GitHub Secrets、EC2 前置設定與部署方式見 [AWS 部署文件](docs/aws-deployment.md)。
