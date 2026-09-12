@@ -1,6 +1,7 @@
-"""Build data/demo/watchdog-demo.sqlite from the working DB with every personal-name column blanked.
+"""Build data/demo/watchdog-demo.sqlite from the working DB.
 
-Linker codes stay (they are the join key); the names behind them do not travel with the demo.
+Kept: school titles and 負責人 names (public registry data, Peter 2026-09-12). Blanked: penalised individuals
+(actor/actor_name), tel/address/url, Google review full text (UGC; stars and counts stay), agent turns, feedback, run logs.
 """
 import pathlib
 import shutil
@@ -19,15 +20,16 @@ def main() -> int:
     shutil.copy2(DEFAULT_DB, OUT)
     con = sqlite3.connect(OUT)
     con.executescript("""
-      UPDATE src_preschools SET owner = NULL, tel = NULL, address = NULL, url = NULL;
+      UPDATE src_preschools SET tel = NULL, address = NULL, url = NULL;
       UPDATE src_penalties SET actor = NULL, actor_name = NULL;
-      UPDATE app_linkers SET key_name = code;
+      UPDATE app_sentiment SET reviews = '[]' WHERE reviews IS NOT NULL;
       DELETE FROM app_agent_turns; DELETE FROM app_feedback;
       DELETE FROM app_pipeline_runs;
       VACUUM;""")
-    n = con.execute("SELECT COUNT(*) FROM src_preschools WHERE owner IS NOT NULL").fetchone()[0]
+    n = con.execute("SELECT COUNT(*) FROM src_penalties WHERE actor_name IS NOT NULL").fetchone()[0]
+    r = con.execute("SELECT COUNT(*) FROM app_sentiment WHERE reviews NOT IN ('[]') AND reviews IS NOT NULL").fetchone()[0]
     con.close()
-    assert n == 0
+    assert n == 0 and r == 0
     print(OUT, round(OUT.stat().st_size / 1e6, 1), "MB")
     return 0
 
