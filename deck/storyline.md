@@ -1,6 +1,6 @@
 ---
 title: 小小守護員 Smart Watchdog — 提案 storyline
-status: draft            # Peter 主筆簽核後改 signed-off，才進 /slide-office-hours → 生成
+status: draft            # 2026-09-12 deck 已依現況重建 13 張（HTML + PDF）；Peter 簽核後跑 /slide-office-hours 紅隊
 audience: 教育局評審（承辦主管 + 資料／AI 委員）
 length: 12 張 · 8 分鐘
 date: 2026-09-12
