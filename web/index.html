@@ -211,7 +211,16 @@ async function seasonToggle(pid, on) { try { if (on) await api('/season-list/' +
 
 // ---------- detail
 S.detail = async (pid) => {
+  if (!pid || pid === 'undefined') {
+    let last = null; try { last = localStorage.getItem('lastPid'); } catch (_) { }
+    if (last) { location.hash = '#detail/' + last; return '<div class="skel">開啟最近看過的園所…</div>'; }
+    const top = await api('/rankings?size=10&level=' + encodeURIComponent('高'));
+    return `<div class="crumb">承辦<span>/</span>園所詳情</div><h2>園所詳情</h2><p class="sub">從排名、地圖或名單點一個園所進來；或在這裡搜尋園名</p>
+<div class="card" style="margin-bottom:16px"><div class="card-b"><form class="tools" onsubmit="event.preventDefault();location.hash='#rank?q='+encodeURIComponent(this.q.value)"><input class="inp" name="q" placeholder="園名關鍵字" style="min-width:320px"><button class="btn pri" type="submit">搜尋</button></form></div></div>
+<div class="card"><div class="card-h"><h3>高風險前 10</h3></div><table><tbody>${top.items.map(r => `<tr><td class="num">${r.rank}</td><td>${link(r.preschool_id, r.title)}</td><td>${r.town}</td><td>${dot(r.level)}</td><td class="num">${r.score}</td></tr>`).join('')}</tbody></table></div>`;
+  }
   const d = await api('/preschools/' + pid); CTX.detail = d; const p = d.preschool, s = d.score;
+  try { localStorage.setItem('lastPid', pid); } catch (_) { }
   const owner = d.linkers.find(l => l.kind === 'owner'); const op = d.linkers.find(l => l.kind === 'operator');
   const graphHtml = owner && owner.n_schools > 1 ? await linkerGraph(owner.code, pid) : `<div class="card-b" style="color:var(--text-muted)">${owner ? `負責人 ${esc(owner.name || owner.code)} 名下僅此 1 園` : '無負責人資料（公立園或欄位空白）'}${op ? `；委辦法人 ${op.code}（名下 ${op.n_schools} 園）<a class="chip" href="#linker/${op.code}">看關聯</a>` : ''}</div>`;
   const rankQ = CTX.rank?.gaps; const gaps = ['<3月', '3–6月', '6–12月', '1–2年', '2–3年', '>3年']; const gapBins = gaps.map(b => (rankQ?.find(g => g.b === b) || { n: 0 }).n);
@@ -436,7 +445,7 @@ async function show() {
   const h = (location.hash || '#overview').slice(1); const [path, q] = h.split('?'); const [k, arg] = path.split('/');
   const f = S[k] || S.overview; const main = $('main'); main.innerHTML = '<div class="skel">載入中…</div>';
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.s === k || (k === 'detail' && a.dataset.s === 'rank') || (k === 'linker' && a.dataset.s === 'rank')));
-  try { if (k === 'detail' && !CTX.rank) { try { CTX.rank = await api('/rankings?size=1'); } catch (_) { } } main.innerHTML = await f(arg || q); if (k === 'overview') initMap(); if (k === 'detail') loadSentiment(arg); window.scrollTo(0, 0); }
+  try { if (k === 'detail' && !CTX.rank) { try { CTX.rank = await api('/rankings?size=1'); } catch (_) { } } main.innerHTML = await f(arg || q); if (k === 'overview') initMap(); if (k === 'detail' && arg && arg !== 'undefined') loadSentiment(arg); window.scrollTo(0, 0); }
   catch (e) { main.innerHTML = `<h2>${k}</h2>${errCard(e)}${e.state === 'no_scores' ? '<div class="note">執行 <span class="mono">make bootstrap</span> 或 <span class="mono">python scripts/score.py</span></div>' : ''}`; }
   renderSugg(k);
 }
