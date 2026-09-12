@@ -53,6 +53,36 @@ jobs:
       EC2_USER: ubuntu
     steps:
       - uses: actions/checkout@v4
+      - name: Debug OIDC claims (temporary)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          try:
+              url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+              separator = "&" if "?" in url else "?"
+              url += separator + urllib.parse.urlencode({"audience": "sts.amazonaws.com"})
+              request = urllib.request.Request(url, headers={
+                  "Authorization": "Bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"],
+              })
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  token = json.load(response)["value"]
+              payload = token.split(".")[1]
+              claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+          except Exception:
+              raise SystemExit("Unable to retrieve or decode GitHub OIDC token; sensitive details omitted.")
+
+          keys = (
+              "aud", "sub", "repository", "repository_id",
+              "repository_owner", "repository_owner_id", "ref", "environment",
+          )
+          print(json.dumps({key: claims.get(key) for key in keys}, indent=2))
+          PY
       - uses: aws-actions/configure-aws-credentials@v6.2.3
         with:
           role-to-assume: arn:aws:iam::861560493301:role/github-actions-ecr
