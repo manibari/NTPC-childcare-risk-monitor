@@ -146,6 +146,21 @@ CREATE VIEW IF NOT EXISTS v_penalties AS
 CREATE VIEW IF NOT EXISTS v_penalty_events AS SELECT * FROM src_penalty_events;
 CREATE VIEW IF NOT EXISTS v_ratios AS SELECT preschool_id, code, title, fiscal_year, capacity, payload FROM src_ratios;
 CREATE VIEW IF NOT EXISTS v_linkers AS SELECT linker_id, kind, code, n_schools FROM app_linkers;
+CREATE VIEW IF NOT EXISTS v_preschool_linkers AS
+  SELECT pl.preschool_id, pl.linker_id, l.kind, l.code, l.n_schools, pl.same_name_flag, pl.excluded_by_user
+  FROM app_preschool_linkers pl JOIN app_linkers l ON l.linker_id = pl.linker_id;
+CREATE VIEW IF NOT EXISTS v_scores AS
+  SELECT s.* , b.asof_date, b.method AS batch_method FROM app_scores s
+  JOIN app_score_batches b ON b.score_batch_id = s.score_batch_id WHERE b.is_current = 1;
+CREATE VIEW IF NOT EXISTS v_watchlist AS SELECT * FROM app_watchlist WHERE is_current = 1;
+CREATE VIEW IF NOT EXISTS v_schedule AS SELECT * FROM app_schedules WHERE is_current = 1;
+CREATE VIEW IF NOT EXISTS v_schedule_visits AS
+  SELECT v.* FROM app_schedule_visits v JOIN app_schedules s ON s.schedule_id = v.schedule_id WHERE s.is_current = 1;
+CREATE VIEW IF NOT EXISTS v_season_list AS SELECT * FROM app_season_list;
+CREATE VIEW IF NOT EXISTS v_models AS SELECT * FROM app_models;
+CREATE VIEW IF NOT EXISTS v_backtests AS SELECT * FROM app_backtests;
+CREATE VIEW IF NOT EXISTS v_settings AS SELECT * FROM app_settings;
+CREATE VIEW IF NOT EXISTS v_pipeline_runs AS SELECT * FROM app_pipeline_runs;
 CREATE VIEW IF NOT EXISTS v_ntpc_penalty_summary AS
   SELECT p.id, p.title, p.type, p.town, p.count_approved, p.is_active,
          COUNT(e.event_id) AS n_events, MIN(e.date) AS first_event, MAX(e.date) AS last_event,

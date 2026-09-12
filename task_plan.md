@@ -45,8 +45,8 @@
 
 ### 刀 2
 
-- [ ] **P4 API + 匯出**：FastAPI `/api/v1/*`（overview/rankings/preschools/linkers/backtest/schedule/season-list/export/data-quality/settings/feedback）；`v_*` 去識別 view；錯誤 envelope（request_id/retryable/hint）；409+state；`X-Demo-Token`；契約測試 + 姓名性質測試。
-- [ ] **P4b 問答**：`app/agent.py` AgentService（架構定調 9）+ `POST /api/v1/ask`（串流）+ `app_agent_turns`；每頁 3 個建議問題；demo 3 題離線快取；T9 稽查重點三行（P2）。
+- [x] **P4 API + 匯出**：FastAPI `/api/v1/*`（overview/rankings/preschools/linkers/backtest/schedule/season-list/export/data-quality/settings/feedback）；`v_*` 去識別 view；錯誤 envelope（request_id/retryable/hint）；409+state；`X-Demo-Token`；契約測試 + 姓名性質測試。
+- [x] **P4b 問答**：`app/agent.py` AgentService（架構定調 9）+ `POST /api/v1/ask`（串流）+ `app_agent_turns`；每頁 3 個建議問題；demo 3 題離線快取；T9 稽查重點三行（P2）。
 - [ ] **P5 Web**：Next.js + 專案 DESIGN.md；主線 6 + 維護區 3 + 抽屜 + 匯出；**總覽用地圖呈現（Peter 2026-09-12）：Leaflet 園所點圖（等級色點）+ 行政區彙總，離線退回長條；每園一個地址點（Peter 2026-09-12「園所要有對應的地址點」，`v_preschools.lng/lat` 全 1,216 園齊全、不帶地址文字）**；八張圖（覆蓋率曲線／提前天數／再犯累積／區×法條熱圖／36 月趨勢／各區派工／產能 vs 覆蓋／該園間隔 vs 全市）；10×5 互動狀態表；desktop 1440；a11y 規格；mockup 先換膚重排（D2/D3）當實作參考 → **已完成 `mockups/smart-watchdog-v2.html`（2026-09-12，rivendell 風格、9 畫面 + 抽屜 + 匯出、OSM 地圖 1,216 點、真資料去識別）**。
 - [ ] **P6 管線與 bootstrap**：`update.py` 完整契約 + `PipelineError` + 固定 log；`ingest.py`（kiang 兩 JSON、新北公告、評鑑 spike；`raw-web/<date>/`）；`Makefile bootstrap`；`data/demo/watchdog-demo.sqlite`；OCR 產物 release asset；README Quickstart；data_asof = max(event date)。
 - [ ] **P7 驗收**：`/gstack-review`（每 Phase 收尾）；`/qa-dataflow`（HARD GATE，target vs actual）；`/gstack-qa` + `/gstack-design-review`；`/gstack-careful` 於刪表前。
@@ -136,6 +136,8 @@ Lane A: P0→P1→P2→P3→P3b｜Lane B: P6（只依 P0）｜Lane C: D1→D2→
 - [ ] **X5 (P2, CC ~20min)** — repro — raw-web/<date>、schema_version、--zip-dir
 
 ## Key Decisions
+
+- **2026-09-12 P5 前端改為 FastAPI 靜態單頁（web/index.html + 內嵌 SVG 圖表）而非 Next.js**：mockup v2 已是可執行前端、rivendell 規定圖表用內嵌 SVG、`make bootstrap ≤ 5 分鐘` 不需 node；設計系統與畫面完全相同。若日後要多人協作再移植 Next.js。
 
 | Decision | Rationale | Date |
 |----------|-----------|------|
