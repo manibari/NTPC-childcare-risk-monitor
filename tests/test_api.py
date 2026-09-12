@@ -45,7 +45,7 @@ def test_endpoints_and_no_names(client, names):
     for ep in ENDPOINTS:
         r = client.get(ep); assert r.status_code == 200, ep
         dump += r.text
-    top = client.get("/api/v1/rankings?size=5").json()["items"][0]
+    top = client.get("/api/v1/rankings?size=5&level=高").json()["items"][0]
     r = client.get(f"/api/v1/preschools/{top['preschool_id']}"); assert r.status_code == 200; dump += r.text
     assert r.json()["score"]["level"] in ("高", "中", "低")
     code = client.get("/api/v1/data-quality").json()
@@ -66,7 +66,7 @@ def test_error_envelope_and_state(client):
 
 
 def test_season_list_roundtrip_and_feedback(client):
-    pid = client.get("/api/v1/rankings?size=1&page=3").json()["items"][0]["preschool_id"]
+    pid = client.get("/api/v1/rankings?size=1&page=3&level=低").json()["items"][0]["preschool_id"]
     n0 = client.get("/api/v1/season-list").json()
     r = client.post("/api/v1/season-list", json={"preschool_id": pid, "note": "test"}); assert r.status_code == 200
     assert any(m["preschool_id"] == pid for m in client.get("/api/v1/season-list").json()["manual"])

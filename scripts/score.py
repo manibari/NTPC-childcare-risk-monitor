@@ -70,7 +70,7 @@ def score_all(con: sqlite3.Connection, asof: str | None = None, city: str = "新
         method, model_id = f"model:{active[1]}", active[0]
     else:
         cur["prob"] = cur["prob_rule"]
-    cur = cur.sort_values(["prob", "rule"], ascending=False).reset_index(drop=True)
+    cur = cur.sort_values(["prob", "rule"], ascending=[False, False]).reset_index(drop=True)
     cur["rank"] = np.arange(1, len(cur) + 1)
     cur["risk_01"] = cur["prob"] / cur["prob"].max()
     cur["level"] = _levels(cur["prob"], settings)

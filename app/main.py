@@ -125,35 +125,40 @@ def overview():
 # ----------------------------------------------------------------------------- rankings
 @app.get("/api/v1/rankings")
 def rankings(town: str | None = None, type: str | None = None, level: str | None = None, q: str | None = None,
-             top_n: int | None = None, page: int = 1, size: int = 50):
+             linked: str | None = None, top_n: int | None = None, page: int = 1, size: int = 25):
     con = ro(); require_scores(con); s = settings(con)
     if type and type not in ("私立", "公立", "非營利"):
         raise ApiError(400, "BAD_FILTER", f"未知立案別 {type}")
-    where, args = ["p.city=?", "s.rank IS NOT NULL"], [CITY]
+    where, args = ["p.city=?"], [CITY]
     if town: where.append("p.town=?"); args.append(town)
     if type: where.append("p.type=?"); args.append(type)
     if level:
         lv = level.split(",")
-        if not set(lv) <= {"高", "中", "低"}: raise ApiError(400, "BAD_FILTER", f"未知等級 {level}")
+        if not set(lv) <= {"高", "中", "低", "無紀錄", "停辦"}: raise ApiError(400, "BAD_FILTER", f"未知等級 {level}")
         where.append(f"s.level IN ({','.join('?'*len(lv))})"); args += lv
     if q: where.append("p.title LIKE ?"); args.append(f"%{q}%")
     if top_n: where.append("s.rank<=?"); args.append(top_n)
+    link_sub = "(SELECT code FROM v_preschool_linkers l WHERE l.preschool_id=s.preschool_id AND l.kind='owner' AND l.n_schools>1 AND l.excluded_by_user=0 LIMIT 1)"
+    if linked == "yes": where.append(f"{link_sub} IS NOT NULL")
+    if linked == "no": where.append(f"{link_sub} IS NULL")
     w = " AND ".join(where)
     total = one(con, f"SELECT COUNT(*) n FROM v_scores s JOIN v_preschools p ON p.id=s.preschool_id WHERE {w}", args)["n"]
     items = rows(con, f"""SELECT s.preschool_id, p.title, p.town, p.type, p.count_approved, s.rank, s.score, s.prob_12m, s.risk_01, s.level, s.method, s.reason, s.top_features,
                           (SELECT COUNT(*) FROM v_penalty_events e WHERE e.preschool_id=s.preschool_id) n_events,
                           (SELECT MAX(date) FROM v_penalty_events e WHERE e.preschool_id=s.preschool_id) last_event,
-                          (SELECT code FROM v_preschool_linkers l WHERE l.preschool_id=s.preschool_id AND l.kind='owner' AND l.n_schools>1 LIMIT 1) linker_code,
+                          {link_sub} linker_code,
                           EXISTS(SELECT 1 FROM v_season_list z WHERE z.preschool_id=s.preschool_id AND z.status<>'removed') in_season_list,
                           (SELECT tier FROM v_watchlist w WHERE w.preschool_id=s.preschool_id LIMIT 1) watch_tier
-                          FROM v_scores s JOIN v_preschools p ON p.id=s.preschool_id WHERE {w} ORDER BY s.rank LIMIT ? OFFSET ?""", args + [size, (page - 1) * size])
+                          FROM v_scores s JOIN v_preschools p ON p.id=s.preschool_id WHERE {w}
+                          ORDER BY s.rank IS NULL, s.rank, s.level='停辦', p.title LIMIT ? OFFSET ?""", args + [size, (page - 1) * size])
     for it in items:
         it["top_features"] = json.loads(it["top_features"]) if it["top_features"] else None
     levels = {r["level"]: r["n"] for r in rows(con, "SELECT level, COUNT(*) n FROM v_scores GROUP BY level")}
     gaps = rows(con, """WITH g AS (SELECT preschool_id, julianday(date) - julianday(LAG(date) OVER (PARTITION BY preschool_id ORDER BY date)) d FROM v_penalty_events e WHERE preschool_id IN (SELECT id FROM v_preschools WHERE city=?))
                         SELECT CASE WHEN d<90 THEN '<3月' WHEN d<180 THEN '3–6月' WHEN d<365 THEN '6–12月' WHEN d<730 THEN '1–2年' WHEN d<1095 THEN '2–3年' ELSE '>3年' END b, COUNT(*) n FROM g WHERE d IS NOT NULL GROUP BY b""", (CITY,))
+    n_season = one(con, "SELECT COUNT(*) n FROM v_watchlist")["n"] + one(con, "SELECT COUNT(*) n FROM v_season_list WHERE status<>'removed'")["n"]
     return {"data_asof": s["data_asof"], "stale": stale(con, s), "total": total, "page": page, "size": size, "items": items, "levels": levels, "gaps": gaps,
-            "thresholds": {"high": float(s["high_threshold"]), "mid": float(s["mid_threshold"]), "top_n": int(s["top_n_default"])}}
+            "n_season": n_season, "thresholds": {"high": float(s["high_threshold"]), "mid": float(s["mid_threshold"]), "top_n": int(s["top_n_default"])}}
 
 
 # ----------------------------------------------------------------------------- preschool detail
@@ -414,7 +419,7 @@ def export(scope: str = "season", format: str = "xlsx", town: str | None = None,
     elif scope == "schedule":
         items = schedule_get()["visits"]
     else:
-        items = rankings(town=town, level=level, top_n=top_n or int(settings(con)["top_n_default"]), size=2000)["items"]
+        items = rankings(town=town, level=level or "高,中,低", top_n=top_n or int(settings(con)["top_n_default"]), size=2000)["items"]
     if not items: raise ApiError(422, "EMPTY_LIST", "無資料可匯出")
     cols = ["title", "town", "type", "level", "rank", "reason", "tier", "層", "linker_code", "week_no", "inspector_no", "n_events", "last_event"]
     cols = [c for c in cols if any(c in it for it in items)]
