@@ -87,3 +87,25 @@ def test_real_data_event_counts(tmp_path):
     rows = con.execute("SELECT COUNT(*) FROM src_penalties x JOIN src_preschools p ON p.id=x.preschool_id WHERE p.city='新北市'").fetchone()[0]
     assert rows == 1474
     assert stats["orphans"] == {}
+
+
+def test_finance_rows_resolve_to_preschool_id(tmp_path, synthetic_data):
+    """statements.csv carries only the OCR short name; ratios.csv the kiang title. Both must land on preschools.id."""
+    import csv
+    with open(synthetic_data / "statements.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["code", "name", "fiscal_year", "bs_assets", "is_revenue"])
+        w.writeheader()
+        w.writerow({"code": "N01", "name": "乙", "fiscal_year": "112", "bs_assets": "100", "is_revenue": "50"})
+        w.writerow({"code": "N99", "name": "不存在", "fiscal_year": "112", "bs_assets": "1", "is_revenue": "1"})
+    with open(synthetic_data / "ratios.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["code", "name", "title", "fiscal_year", "capacity", "人事費率"])
+        w.writeheader()
+        w.writerow({"code": "N01", "name": "乙", "title": "新北市乙非營利幼兒園（委託社團法人丙協會辦理）", "fiscal_year": "112", "capacity": "60", "人事費率": "0.6"})
+    b, stats = build(tmp_path, synthetic_data)
+    con = connect(b.db_path)
+    assert con.execute("SELECT preschool_id FROM src_statements WHERE code='N01'").fetchone()[0] == "B"
+    assert con.execute("SELECT preschool_id FROM src_statements WHERE code='N99'").fetchone()[0] is None
+    assert con.execute("SELECT preschool_id FROM src_ratios").fetchone()[0] == "B"
+    assert stats["finance_unlinked"] == {"src_statements": 1}
+    # the detail-page join (SD §3 finance block) now returns a row
+    assert con.execute("SELECT COUNT(*) FROM v_ratios r JOIN src_preschools p ON p.id = r.preschool_id").fetchone()[0] == 1

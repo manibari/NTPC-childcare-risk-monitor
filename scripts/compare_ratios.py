@@ -17,8 +17,15 @@ d = pd.read_csv(ROOT / "data/statements.csv")
 fields = [c for c in d.columns if c.startswith(("bs_", "is_"))]
 
 # --- reconcile duplicates: same (code, fiscal_year) from two reports ---
+def norm(t) -> str:
+    """Half-width parens so cover titles and kiang titles compare equal."""
+    return str(t).replace("（", "(").replace("）", ")").replace(" ", "") if pd.notna(t) else ""
+
+
 def reconcile(g: pd.DataFrame) -> pd.Series:
-    out = {"code": g.code.iloc[0], "name": g["name"].iloc[0], "fiscal_year": g.fiscal_year.iloc[0], "n_sources": len(g)}
+    titles = [t for t in g.get("title", pd.Series(dtype=str)).dropna().unique() if t]
+    out = {"code": g.code.iloc[0], "name": g["name"].iloc[0], "cover_title": titles[0] if titles else None,
+           "fiscal_year": g.fiscal_year.iloc[0], "n_sources": len(g)}
     for f in fields:
         vals = g[f].dropna().unique()
         if len(vals) == 1:
@@ -52,7 +59,11 @@ def lookup(short):
         if p["city"] == "新北市" and p["type"] == "非營利" and (t.startswith("新北市" + short) or t.startswith("新北市政府" + short)):
             return t
     return None
-r["title"] = r["name"].map(lookup)
+# cover title (operator-specific) first; short-name prefix lookup only as fallback
+by_norm = {norm(t): t for t, p in master.items() if p["city"] == "新北市" and p["type"] == "非營利"}
+r["title"] = r.cover_title.map(lambda t: by_norm.get(norm(t)))
+r["title"] = r.title.fillna(r["name"].map(lookup))
+r = r.drop(columns=["cover_title"])
 pen_by_title = {v["title"]: v["penalties"] for v in pen.values()}
 r["n_penalty"] = r.title.map(lambda t: len(pen_by_title.get(t, [])))
 r["penalised"] = r.n_penalty > 0

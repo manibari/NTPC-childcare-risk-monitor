@@ -16,7 +16,7 @@
 3. **規則為主、模型驗證（gate 品味 1）**：回頭客燈號（事件次數 × 近期性 × 兒安條款）是排序主幹；GBDT 只在回測「前 100 覆蓋率且 AUC 皆優於按次數排序」時取代規則做細排序。無裁罰史園一律「無紀錄」，不出屬性分（E3）。
 4. **人力是系統內約束（E1，Peter）**：settings 存 `n_inspectors`、`visits_per_inspector_week`、`quarter_weeks`；CP-SAT 排程輸出 週×稽查員 行程；覆蓋為軟約束（權重 risk_01）、容量硬約束、season_list 必訪、釘選固定、排除移除、停辦園不排、同 owner-link 與同區同週加分；`max_time 20s`、seed 固定；INFEASIBLE/UNKNOWN → 422 帶原因。
 5. **連坐＝人工確認線索（E5）**：名單分「已裁罰」「連坐待確認」兩層；不進分數；排除同名同步反映排名／匯出／圖。
-6. **匿名化架構層擋（Eng H1，跨階段主題 2）**：API 與問答只讀 `v_*` 去識別 view（無 actor_name/owner/operator/tel/address）；demo 一律去識別園名（`anonymize_titles`）；契約測試「任何回應 grep 姓名清單 = 0」為 REGRESSION 級。
+6. **匿名化架構層擋（Eng H1，跨階段主題 2）**：API 與問答只讀 `v_*` 去識別 view（無 actor_name/owner/operator/tel/address）；園名用公開登記名稱（Peter 2026-09-12「不要用去識別化，看不懂」；`anonymize_titles` 預設 0，只在公開展示時開）；姓名仍架構層擋；契約測試「任何回應 grep 姓名清單 = 0」為 REGRESSION 級。
 7. **表分兩族（Eng A1）**：`src_*` 每次更新單一交易 DROP/CREATE（WAL、busy_timeout、schema 斷言、筆數驟降中止、孤兒檢查）；`app_*` 持久永不 drop；不 rename 檔。
 8. **時間切分零洩漏（Eng C1/A4/A5）**：觀察點 = 事件 +1 天 + 季末，`asof ≥ reg_date`；標籤 = asof 後 31–365 天內新事件；特徵分事件史（進回測）與快照屬性（`snapshot=1` 不進回測）；walk-forward 測試年 Y 訓練集 `asof ≤ Y-01-01 − 365d`；`models` 含 `feature_hash`、`eval_year`、`seed`；固定 holdout 年比版本；單一 active 用 partial unique index，只有 Approver 改狀態。
 9. **Agentic 問答唯讀（E16，Peter；比照 PTI-ARES AgentService）**：工具集 = `sql_readonly`（ro URI + authorizer 只放 v_* + progress 5s + AST allowlist + LIMIT 200）、`explain_score`、`get_schedule`、`get_finance`；無寫入工具；每輪 `app_agent_turns` 留痕；無 Anthropic key 時抽屜 disabled、其餘 100% 可用。

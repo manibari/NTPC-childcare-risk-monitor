@@ -106,10 +106,27 @@ def extract(lines, items, col_x):
     return out
 
 
+TITLE = re.compile(r"新北市(?:政府)?[\u4e00-\u9fff]+?非營利幼兒園[（(]委託[^（()）]+?辦理[）)]")
+
+
+def cover_title(pages: list[dict]) -> str | None:
+    """Full school title incl. the operating legal entity, read off the cover page.
+
+    Seven schools changed operator and exist twice in the kiang master under the same
+    short name; only the cover's '（委託…辦理）' tells which record a report belongs to."""
+    for p in pages[:2]:
+        txt = "".join(l["text"] for l in p["lines"]).replace(" ", "")
+        m = TITLE.search(txt)
+        if m:
+            return m.group(0)
+    return None
+
+
 def parse_file(path: pathlib.Path):
     m = re.match(r"(N\d+)(.+?)_(\d+)學年度", path.stem)
     code, name, year = m.group(1), m.group(2), int(m.group(3))
     pages = [json.loads(l) for l in open(path)]
+    title = cover_title(pages)
     bs, is_pages = None, []
     for p in pages:
         k = page_kind(p["lines"])
@@ -153,7 +170,7 @@ def parse_file(path: pathlib.Path):
         recs.setdefault(fy, {}).update({f"is_{k}": v for k, v in d.items()})
     rows = []
     for fy, d in recs.items():
-        rows.append({"code": code, "name": name, "report_year": year, "fiscal_year": fy, **d})
+        rows.append({"code": code, "name": name, "title": title, "report_year": year, "fiscal_year": fy, **d})
     return rows, (bs is not None, len(is_pages))
 
 
@@ -164,10 +181,10 @@ def main():
     all_rows, problems = [], []
     for f in files:
         rows, (has_bs, n_is) = parse_file(f)
-        if not has_bs or n_is < 2:
-            problems.append((f.stem, has_bs, n_is))
+        if not has_bs or n_is < 2 or not (rows and rows[0]["title"]):
+            problems.append((f.stem, has_bs, n_is, bool(rows and rows[0]["title"])))
         all_rows.extend(rows)
-    keys = ["code", "name", "report_year", "fiscal_year"] + [f"bs_{k}" for k in BS_ITEMS] + [f"is_{k}" for k in IS_ITEMS]
+    keys = ["code", "name", "title", "report_year", "fiscal_year"] + [f"bs_{k}" for k in BS_ITEMS] + [f"is_{k}" for k in IS_ITEMS]
     with open(ROOT / "data/statements.csv", "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=keys)
         w.writeheader()

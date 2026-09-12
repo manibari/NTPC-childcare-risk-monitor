@@ -105,7 +105,7 @@ DEFAULT_SETTINGS = {
     "top_n_default": "100",
     "watch_window_months": "12",
     "stale_days": "90",
-    "anonymize_titles": "1",
+    "anonymize_titles": "0",
     "data_asof": "",
 }
 
@@ -281,14 +281,20 @@ class DBBuilder:
                        MAX(is_child_safety), MAX(punishment LIKE '停止招生%'), MAX(actor_role = '行為人')
                 FROM src_penalties GROUP BY preschool_id, date""")
             con.execute("UPDATE src_penalties SET event_id = (SELECT event_id FROM src_penalty_events e WHERE e.preschool_id = src_penalties.preschool_id AND e.date = src_penalties.date)")
+            resolve = self.finance_resolver(src["preschools"])
+            unlinked = {"src_statements": 0, "src_ratios": 0}
             for row in src["statements"]:
+                pid = row.get("preschool_id") or resolve(row.get("title"), row.get("name"))
+                unlinked["src_statements"] += pid is None
                 con.execute("INSERT INTO src_statements VALUES (?,?,?,?,?,?,?,?,?)",
-                            (row.get("preschool_id"), row.get("code"), row.get("name"), row.get("title"), _int(row.get("fiscal_year")),
+                            (pid, row.get("code"), row.get("name"), row.get("title"), _int(row.get("fiscal_year")),
                              _int(row.get("n_sources")), _int(row.get("bs_ok") in ("True", "1", "true")), _int(row.get("is_ok") in ("True", "1", "true")),
                              json.dumps({k: v for k, v in row.items() if k.startswith(("bs_", "is_"))}, ensure_ascii=False)))
             for row in src["ratios"]:
+                pid = row.get("preschool_id") or resolve(row.get("title"), row.get("name"))
+                unlinked["src_ratios"] += pid is None
                 con.execute("INSERT INTO src_ratios VALUES (?,?,?,?,?,?,?)",
-                            (row.get("preschool_id"), row.get("code"), row.get("name"), row.get("title"), _int(row.get("fiscal_year")),
+                            (pid, row.get("code"), row.get("name"), row.get("title"), _int(row.get("fiscal_year")),
                              _int(row.get("capacity")), json.dumps({k: v for k, v in row.items() if k not in ("preschool_id", "code", "name", "title", "fiscal_year", "capacity", "penalised", "n_penalty", "pre_penalty")}, ensure_ascii=False)))
             _exec_ddl(con, VIEWS_DDL)
             orphans = self.orphan_check(con)
@@ -300,6 +306,7 @@ class DBBuilder:
             raise
         stats = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in SRC_TABLES}
         stats["orphans"] = orphans
+        stats["finance_unlinked"] = {k: v for k, v in unlinked.items() if v}  # rows whose school could not be resolved
         stats["data_asof"] = data_asof
         return stats
 
@@ -311,6 +318,34 @@ class DBBuilder:
             if n:
                 out[t] = n
         return out
+
+    @staticmethod
+    def finance_resolver(preschools: list[tuple]):
+        """Map an OCR report's school name (short, e.g. '安溪') or full kiang title to preschool id.
+
+        Financial reports exist only for 新北市 非營利 schools; the OCR filename carries the short
+        name and kiang's title is '新北市<name>非營利幼兒園(委託…)' or '新北市政府<name>…'.
+        Returns a function(title, name) -> id | None. Ambiguous short names resolve to None."""
+        def norm(t) -> str:
+            return (t or "").replace("（", "(").replace("）", ")").replace(" ", "")
+
+        by_title: dict[str, str] = {}
+        by_short: dict[str, list[str]] = {}
+        for row in preschools:
+            pid, title, city, typ = row[0], row[1], row[4], row[6]
+            by_title[norm(title)] = pid
+            if city != "新北市" or typ != "非營利":
+                continue
+            m = re.match(r"^新北市(?:政府)?(.+?)非營利幼兒園", title)
+            if m:
+                by_short.setdefault(m.group(1), []).append(pid)
+
+        def resolve(title: str | None, name: str | None):
+            if title and norm(title) in by_title:
+                return by_title[norm(title)]
+            hits = by_short.get((name or "").strip(), [])
+            return hits[0] if len(hits) == 1 else None
+        return resolve
 
     def build(self) -> dict:
         t0 = time.time()
