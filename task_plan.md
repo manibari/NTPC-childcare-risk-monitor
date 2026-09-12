@@ -38,7 +38,7 @@
 ### 刀 1
 
 - [x] **P0 資料層加固**：`scripts/db.py` DBBuilder（src_/app_、單交易重建、WAL、schema 斷言、筆數驟降、孤兒檢查、app_ 永不 drop、`schema_version`）；`penalty_events` 去重；`is_child_safety`；`app_settings` 預設（人力三參數、門檻、top_n、觀察期、stale_days、anonymize_titles）；`app_pipeline_runs`；`pyproject.toml` + `.python-version` + `.env.example`；`tests/` 骨架 + 去重／DB 保留兩條測試。exploration/findings/memory 數字改事件層。
-- [ ] **P1 Linker**：owner / 委辦法人 → `app_linkers`（持久、首次配碼永不回收）、`preschool_linkers`（同名判定 5 km）、`app_watchlist` 兩層；kiang 覆蓋率驗證腳本（T5）。
+- [x] **P1 Linker**：owner / 委辦法人 → `app_linkers`（持久、首次配碼永不回收）、`preschool_linkers`（同名判定 5 km）、`app_watchlist` 兩層；kiang 覆蓋率驗證腳本（T5）。
 - [ ] **P2 觀察點／訓練／回測／ROI**：`features.py`（事件史 vs 快照、洩漏 assert、31–365 標籤、≥ reg_date）；`train.py`（walk-forward gap 365、GBDT + 邏輯迴歸、三 baseline、feature_hash/eval_year/seed、`app_models`+`app_backtests`+`app_model_events`）；`approve.py`（單一 active、降幅規則）；`roi.py`（歷史年重播排程 vs 輪流）。**Go/no-go 決定主張。**
 - [ ] **P3 評分**：`score.py`（rule → model 條件切換 → 無紀錄；`score_batch_id` 交易切 current；`risk_01`；等級絕對門檻 + 前 N；top 理由白話句）。
 - [ ] **P3b 排程**：`schedule.py`（CP-SAT，架構定調 4）+ `app_schedules`/`app_schedule_visits`；候選前 300 + 必訪 + 連坐園。
@@ -47,7 +47,7 @@
 
 - [ ] **P4 API + 匯出**：FastAPI `/api/v1/*`（overview/rankings/preschools/linkers/backtest/schedule/season-list/export/data-quality/settings/feedback）；`v_*` 去識別 view；錯誤 envelope（request_id/retryable/hint）；409+state；`X-Demo-Token`；契約測試 + 姓名性質測試。
 - [ ] **P4b 問答**：`app/agent.py` AgentService（架構定調 9）+ `POST /api/v1/ask`（串流）+ `app_agent_turns`；每頁 3 個建議問題；demo 3 題離線快取；T9 稽查重點三行（P2）。
-- [ ] **P5 Web**：Next.js + 專案 DESIGN.md；主線 5 + 維護區 3 + 抽屜 + 匯出；**總覽用地圖呈現（Peter 2026-09-12）：Leaflet 園所點圖（等級色點）+ 行政區彙總，離線退回長條**；八張圖（覆蓋率曲線／提前天數／再犯累積／區×法條熱圖／36 月趨勢／各區派工／產能 vs 覆蓋／該園間隔 vs 全市）；10×5 互動狀態表；desktop 1440；a11y 規格；mockup 先換膚重排（D2/D3）當實作參考。
+- [ ] **P5 Web**：Next.js + 專案 DESIGN.md；主線 5 + 維護區 3 + 抽屜 + 匯出；**總覽用地圖呈現（Peter 2026-09-12）：Leaflet 園所點圖（等級色點）+ 行政區彙總，離線退回長條；每園一個地址點（Peter 2026-09-12「園所要有對應的地址點」，`v_preschools.lng/lat` 全 1,216 園齊全、不帶地址文字）**；八張圖（覆蓋率曲線／提前天數／再犯累積／區×法條熱圖／36 月趨勢／各區派工／產能 vs 覆蓋／該園間隔 vs 全市）；10×5 互動狀態表；desktop 1440；a11y 規格；mockup 先換膚重排（D2/D3）當實作參考。
 - [ ] **P6 管線與 bootstrap**：`update.py` 完整契約 + `PipelineError` + 固定 log；`ingest.py`（kiang 兩 JSON、新北公告、評鑑 spike；`raw-web/<date>/`）；`Makefile bootstrap`；`data/demo/watchdog-demo.sqlite`；OCR 產物 release asset；README Quickstart；data_asof = max(event date)。
 - [ ] **P7 驗收**：`/gstack-review`（每 Phase 收尾）；`/qa-dataflow`（HARD GATE，target vs actual）；`/gstack-qa` + `/gstack-design-review`；`/gstack-careful` 於刪表前。
 - [ ] **P8 deck**：storyline.md（Peter 主筆）→ `/slide-office-hours` signed-off → `/sales-deck-design` → `/de-slopify` → `/gstack-document-release`。首頁承認限制；主視覺＝關聯圖 + 覆蓋率曲線；數字用事件層 + ROI。
